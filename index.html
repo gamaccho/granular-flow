@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="触れると流れが生まれる、粒のインタラクティブアート。An interactive granular flow art series by gamacho.">
+<meta name="theme-color" content="#121019">
+<title>Granular Flow — gamacho</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#121019;color:#f1edf7;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;line-height:1.7}main{max-width:1100px;margin:auto;padding:80px 28px 48px}.eyebrow{font-size:12px;letter-spacing:.2em;color:#b4a5cb}h1{font-size:clamp(42px,8vw,84px);font-weight:500;letter-spacing:-.045em;line-height:1.1;margin:20px 0 24px}.intro{color:#c1b8cf;margin:0 0 50px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:24px}.work{display:block;border:1px solid #393044;border-radius:18px;overflow:hidden;color:inherit;text-decoration:none;background:#1b1624;transition:transform .2s,border-color .2s}.work:hover{transform:translateY(-4px);border-color:#bd9aef}.work:focus-visible{outline:3px solid #d3b7ff;outline-offset:5px}.cover{height:clamp(200px,32vw,340px);overflow:hidden;position:relative;background:radial-gradient(ellipse at 20% 75%,#bd668a 0,transparent 45%),radial-gradient(ellipse at 80% 15%,#8180c8 0,transparent 55%),#42266a}.cover:after{content:"";position:absolute;inset:0;background-image:radial-gradient(circle at 35% 30%,#ffffff85 0 6%,#d0a5ef80 15%,#2c144c99 47%,transparent 52%);background-size:19px 19px;transform:rotate(-12deg) scale(1.3)}.info{display:flex;align-items:center;justify-content:space-between;padding:24px;gap:20px}.info h2{font-size:23px;font-weight:500;margin:0}.info p{font-size:13px;color:#b8abc8;margin:4px 0 0}.arrow{font-size:26px;color:#d7b9fa}footer{margin-top:64px;border-top:1px solid #322a3d;padding-top:22px;font-size:12px;color:#a89ab9}footer p{margin:4px 0}@media(prefers-reduced-motion:reduce){.work{transition:none}}@media(max-width:600px){main{padding:48px 20px 32px}}
+</style>
+</head>
+<body>
+<main>
+<header><div class="eyebrow">INTERACTIVE ART SERIES / GAMACHO</div><h1>Granular Flow</h1><p class="intro">触れると流れが生まれる、粒のアート。<br>作品を開いて、マウスや指でドラッグしてください。</p></header>
+<section class="grid" aria-label="作品一覧">
+<!-- 通信できない場合も最初の作品へのリンクを残します。 -->
+<a class="work" href="./flow-001/" aria-label="Flow 001を開く">
+<div class="cover" aria-hidden="true"></div>
+<div class="info"><div><h2>Flow 001</h2><p>作品を開く / Explore artwork</p></div><span class="arrow" aria-hidden="true">↗</span></div>
+</a>
+</section>
+<p id="list-status" role="status" style="color:#a89ab9;font-size:13px"></p>
+<footer><p>Created by gamacho with GPT-6 Astra · JavaScript + WebGL</p><p>カードのビジュアルは作品のイメージです。</p></footer>
+</main>
+<script>
+// flow-数字/index.html を検出。API通信は1回、5分間キャッシュします。
+const gallery=document.querySelector('.grid');
+const statusLine=document.getElementById('list-status');
+const cacheKey='gamacho/granular-flow/gallery-v1';
+const validName=name=>/^flow-\d+$/.test(name);
+function displayWorks(names){
+ const fragment=document.createDocumentFragment();
+ for(const name of names){
+ const title='Flow '+name.slice(5);
+ const card=document.createElement('a');card.className='work';card.href='./'+name+'/';card.setAttribute('aria-label',title+'を開く');
+ const cover=document.createElement('div');cover.className='cover';cover.setAttribute('aria-hidden','true');
+ cover.style.filter='hue-rotate('+((Number(name.slice(5))-1)*37%360)+'deg)';
+ const info=document.createElement('div');info.className='info';
+ const labels=document.createElement('div'),heading=document.createElement('h2'),description=document.createElement('p'),arrow=document.createElement('span');
+ heading.textContent=title;description.textContent='作品を開く / Explore artwork';arrow.className='arrow';arrow.textContent='↗';arrow.setAttribute('aria-hidden','true');
+ labels.append(heading,description);info.append(labels,arrow);card.append(cover,info);fragment.append(card);
+ }
+ gallery.replaceChildren(fragment);
+ statusLine.textContent=names.length?'':'作品は準備中です。';
+}
+async function loadWorks(){
+ let cached;
+ try{cached=JSON.parse(localStorage.getItem(cacheKey));}catch{}
+ if(cached&&Array.isArray(cached.names)&&cached.names.every(n=>typeof n==='string'&&validName(n))){
+ displayWorks(cached.names);
+ if(Date.now()-cached.time<300000)return;
+ }
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
+ try{
+ const response=await fetch('https://api.github.com/repos/gamacho/granular-flow/git/trees/main?recursive=1',{signal:controller.signal,headers:{Accept:'application/vnd.github+json'}});
+ if(!response.ok)throw Error('作品一覧を取得できませんでした。');
+ const data=await response.json();
+ if(!Array.isArray(data.tree)||data.truncated)throw Error('作品一覧が不完全です。');
+ const names=[...new Set(data.tree.filter(item=>item.type==='blob'&&/^flow-\d+\/index\.html$/.test(item.path)).map(item=>item.path.split('/')[0]))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+ displayWorks(names);
+ try{localStorage.setItem(cacheKey,JSON.stringify({time:Date.now(),names}));}catch{}
+ }catch{statusLine.textContent='最新の一覧を取得できませんでした。時間をおいて再読み込みしてください。';}
+ finally{clearTimeout(timer);}
+}
+loadWorks();
+</script>
+</body>
+</html>
