@@ -344,7 +344,17 @@ function backgroundColor(){
 }
 // Conservative tile coverage, traversed front-to-back; preserve original draw order.
 // Only fully opaque disks whose entire tile is safely inside can hide other grains.
-const occlusionEnabled=new URLSearchParams(window.location?.search||'').get('occlusion')!=='0';
+const occlusionMode=new URLSearchParams(window.location?.search||'').get('occlusion');
+const occlusionEnabled=occlusionMode!=='0';
+let occlusionActive=false;
+function shouldCullParticles(grain){
+ if(!occlusionEnabled)return false;
+ if(occlusionMode==='legacy')return grain>=12;
+ // Avoid the CPU-heavy, low-benefit middle range. Hysteresis prevents chatter.
+ if(grain>=18)occlusionActive=true;
+ else if(grain<17.5)occlusionActive=false;
+ return occlusionActive;
+}
 const occlusionKeep=new Uint8Array(MAX_PARTICLES);
 const culledData=new Float32Array(MAX_PARTICLES*5);
 let coverage=new Uint8Array(0),coverageWidth=0,coverageHeight=0;
@@ -387,7 +397,7 @@ function cullHiddenParticles(){
  return kept;
 }
 function render(){
- const useOcclusion=occlusionEnabled&&params.grain>=12;
+ const useOcclusion=shouldCullParticles(params.grain);
  const submittedCount=useOcclusion?cullHiddenParticles():drawCount;
  const submittedData=useOcclusion?culledData:drawData;
  const bg=backgroundColor();gl.clearColor(bg[0],bg[1],bg[2],1);
