@@ -356,9 +356,9 @@ let occlusionActive=false;
 function shouldCullParticles(grain){
  if(!occlusionEnabled)return false;
  if(occlusionMode==='legacy')return grain>=12;
- // Avoid the CPU-heavy, low-benefit middle range. Hysteresis prevents chatter.
- if(grain>=18)occlusionActive=true;
- else if(grain<17.5)occlusionActive=false;
+ // Cull overlapping middle-sized grains too; hysteresis prevents chatter.
+ if(grain>=12)occlusionActive=true;
+ else if(grain<11.5)occlusionActive=false;
  return occlusionActive;
 }
 const occlusionKeep=new Uint8Array(MAX_PARTICLES);
