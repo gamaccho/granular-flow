@@ -11,14 +11,14 @@ const definitions=[
  ['viscosity','粘りの強さ',.2,2.5,.01,1.35,''],
  ['fold','渦・折り重なり',0,2,.01,1,'']]],
  ['粒の質感 / MATERIAL',[
- ['grain','粒の大きさ',2,28,.1,6,' px'],
+ ['grain','粒の大きさ',2,20,.1,6,' px'],
  ['relief','粒の立体感',0,1,.01,.5,''],
  ['grainVariation','粒径のバリエーション',0,100,1,50,'%']]],
  ['色 / HSL',[
  ['hue','色相',0,360,1,260,'°'],
  ['hueRange','色相の幅',0,360,1,50,'°'],
  ['saturation','彩度',40,100,1,70,'%'],
- ['lightness','明度',30,90,1,70,'%']]],
+ ['lightness','明度',50,90,1,70,'%']]],
  ['カラーバランス / BALANCE',[
  ['red','シアン ← → レッド',-100,100,1,-100,''],
  ['green','マゼンタ ← → グリーン',-100,100,1,0,''],
@@ -26,7 +26,7 @@ const definitions=[
 const params={roughness:1,exposure:1.10};
 for(const [,items]of definitions)for(const [key,,,,,value]of items)params[key]=value;
 Object.assign(params,{grain:6,relief:.30,grainVariation:100});
-const fixedMaterial=new Set(['grain','relief','grainVariation']);
+const fixedMaterial=new Set(['relief','grainVariation']);
 // Each control traverses its full range independently. Half-cycles take 18–65s.
 const automation=definitions.flatMap(([,items])=>items.filter(([key])=>!fixedMaterial.has(key)).map(([key,,min,max,,,])=>{
  const phase=Math.acos(1-2*(params[key]-min)/(max-min));
@@ -143,7 +143,8 @@ const u={};for(const key of [...Object.keys(params),'balance','aspect','size'])u
 const particleAttr=gl.getAttribLocation(particles,'particle');
 
 function configureDensity(){
- const step=Math.max(params.grain*.70,Math.sqrt(cssWidth*cssHeight*DOMAIN*DOMAIN/400000));
+ // Keep density independent of animated size: no grid rebuild or selection jumps.
+ const step=Math.max(6*.70,Math.sqrt(cssWidth*cssHeight*DOMAIN*DOMAIN/400000));
  nx=Math.max(1,Math.floor(cssWidth*DOMAIN/step));ny=Math.max(1,Math.floor(cssHeight*DOMAIN/step));
  if(occupancy.length!==nx*ny)occupancy=new Uint32Array(nx*ny);
 
