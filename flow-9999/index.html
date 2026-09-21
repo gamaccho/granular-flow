@@ -353,12 +353,28 @@ function backgroundColor(){
 const occlusionMode=new URLSearchParams(window.location?.search||'').get('occlusion');
 const occlusionEnabled=occlusionMode!=='0';
 let occlusionActive=false;
+let estimatedOverlap=0,estimatedDiameter=0;
 function shouldCullParticles(grain){
+ // Sample the actual growing particles; no new arrays or full particle scan.
+ const samples=Math.min(128,drawCount),base=grain*ratio,birth=2*ratio;
+ let area=0;
+ for(let j=0;j<samples;j++){
+ const k=Math.floor((j+.5)*drawCount/samples)*5;
+ if(Math.abs(drawData[k])>aspect*.5||Math.abs(drawData[k+1])>.5)continue;
+ const raw=drawData[k+2]*73.17+drawData[k+3]*19.31,seed=raw-Math.floor(raw);
+ const target=Math.max(1,base*(1+(seed*2-1)*params.grainVariation*.008));
+ const t=Math.max(0,Math.min(1,(drawData[k+4]-1/3)*1.5));
+ const size=Math.min(birth,target)+(target-Math.min(birth,target))*t*t*(3-2*t);
+ area+=size*size;
+ }
+ const meanArea=samples?area/samples:0;
+ estimatedDiameter=Math.sqrt(meanArea);
+ estimatedOverlap=meanArea*Math.PI*.25*drawCount/Math.max(1,canvas.width*canvas.height);
  if(!occlusionEnabled)return false;
  if(occlusionMode==='legacy')return grain>=12;
- // Cull overlapping middle-sized grains too; hysteresis prevents chatter.
- if(grain>=12)occlusionActive=true;
- else if(grain<11.5)occlusionActive=false;
+ // Physical pixels and estimated disk coverage, with separate on/off thresholds.
+ if(estimatedDiameter>=18&&estimatedOverlap>=4)occlusionActive=true;
+ else if(estimatedDiameter<16||estimatedOverlap<3)occlusionActive=false;
  return occlusionActive;
 }
 const occlusionKeep=new Uint8Array(MAX_PARTICLES);
@@ -404,7 +420,7 @@ function cullHiddenParticles(){
 }
 // Opt-in diagnostics: no overlay or timings in ordinary viewing mode.
 // Update this release identifier whenever the published artwork changes.
-const ART_VERSION='2026.09.21-r1';
+const ART_VERSION='2026.09.21-r2';
 const meterEnabled=new URLSearchParams(window.location?.search||'').get('debug')==='1';
 const meter=meterEnabled?document.createElement('pre'):null;
 const meterState={frames:0,elapsed:0,lastUpdate:0,cpu:0,cull:0,submitted:0,culling:false,previous:null,slow:null};
@@ -428,10 +444,11 @@ function updateMeter(now,frameMs){
 FPS ${fps.toFixed(1)} | 平均間隔 ${avg.toFixed(1)} ms
 直近間隔 ${frameMs.toFixed(1)} ms | JS処理 ${meterState.cpu.toFixed(1)} ms
 隠れ判定 ${meterState.culling?'ON':'OFF'} / ${meterState.cull.toFixed(1)} ms
+重なり推定 ${estimatedOverlap.toFixed(1)}倍 | 描画径 ${estimatedDiameter.toFixed(1)} px
 速度 ${params.speed.toFixed(2)} | 渦 ${params.fold.toFixed(2)}
 粘度 ${params.viscosity.toFixed(2)} | 粒径 ${params.grain.toFixed(2)} px
 粒数 ${count.toLocaleString()} | 画面付近 ${drawCount.toLocaleString()}
-描画 ${meterState.submitted.toLocaleString()} | 省略 ${(drawCount-meterState.submitted).toLocaleString()}
+描画 ${meterState.submitted.toLocaleString()} | 省略 ${(drawCount-meterState.submitted).toLocaleString()} (${(drawCount?100*(drawCount-meterState.submitted)/drawCount:0).toFixed(0)}%)
 解像度 ${canvas.width} × ${canvas.height} | 陰影最適化 ${shadingCacheEnabled?'ON':'OFF'}
 ※ JS処理はGPU時間を含みません`;
  if(slow)meter.textContent+=`
