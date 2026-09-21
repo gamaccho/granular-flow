@@ -46,7 +46,9 @@ function start(){
 const DOMAIN=1.5;
 const GX=80,GY=60,fieldX=new Float32Array(GX*GY),fieldY=new Float32Array(GX*GY);
 const MAX_PARTICLES=650000;
-const data=new Float32Array(MAX_PARTICLES*4),drawData=new Float32Array(MAX_PARTICLES*4);
+const data=new Float32Array(MAX_PARTICLES*4),drawData=new Float32Array(MAX_PARTICLES*5);
+const FADE_SECONDS=1.2;
+const fadeProgress=new Float32Array(MAX_PARTICLES);
 const selected=new Uint8Array(MAX_PARTICLES);
 let aspect=1,ratio=1,count=0,drawCount=0,simTime=0;
 let nx=1,ny=1,occupancy=new Uint32Array(1),donor=0;
@@ -60,11 +62,14 @@ function random(){
  return randomState/4294967296;
 }
 const spoon={x:0,y:0,vx:0,vy:0,pendingX:0,pendingY:0};
-const vertex=`attribute vec4 particle;uniform float aspect,size,grainVariation;varying vec2 seed;
+const vertex=`attribute vec4 particle;attribute float opacity;varying float particleOpacity;uniform float aspect,size,grainVariation,birthSize;varying vec2 seed;
 void main(){gl_Position=vec4(particle.x*2./aspect,particle.y*2.,0.,1.);// Stable per-particle variation: adjusting the slider never changes positions.
 float variation=grainVariation*.008;
 float sizeSeed=fract(particle.z*73.17+particle.w*19.31);
-gl_PointSize=max(1.,size*(1.+(sizeSeed*2.-1.)*variation));seed=particle.zw;}`;
+float targetSize=max(1.,size*(1.+(sizeSeed*2.-1.)*variation));
+float growth=smoothstep(1./3.,1.,opacity);
+gl_PointSize=mix(min(birthSize,targetSize),targetSize,growth);
+particleOpacity=smoothstep(0.,1./3.,opacity);seed=particle.zw;}`;
 const colorCode=`
 uniform float hue,hueRange,saturation,lightness,exposure,relief,roughness;
 uniform vec3 balance;
@@ -75,7 +80,7 @@ vec3 pigment(vec2 seed){
  return clamp(hsl(fract((hue+(seed.x-.5)*hueRange)/360.),saturation*.01,mix(lower,upper,seed.y))+balance*.0022,.012,.97);
 }
 `;
-const fragment=`precision highp float;varying vec2 seed;${colorCode}
+const fragment=`precision highp float;varying float particleOpacity;varying vec2 seed;${colorCode}
 void main(){vec2 d=(gl_PointCoord-.5)*2.;float rr=dot(d,d);
 
 if(rr>1.)discard;
@@ -85,14 +90,16 @@ vec3 light=normalize(vec3(-.45,.6,1.));float contact=mix(.52,1.,smoothstep(0.,.6
 float spec=pow(max(dot(n,normalize(light+vec3(0.,0.,1.))),0.),mix(110.,12.,roughness));
 vec3 linear=pow(pigment(seed),vec3(2.2))*(.14+.69*max(dot(n,light),0.))*contact;
 linear+=vec3(spec*(.035+.055*(1.-roughness)))*contact;
-gl_FragColor=vec4(pow(max(linear*exposure,vec3(.0001)),vec3(1./2.2)),1.);}`;
+gl_FragColor=vec4(pow(max(linear*exposure,vec3(.0001)),vec3(1./2.2)),particleOpacity);}`;
 function compile(type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));return shader;}
 function program(v,f){const p=gl.createProgram();gl.attachShader(p,compile(gl.VERTEX_SHADER,v));gl.attachShader(p,compile(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));return p;}
 const particles=program(vertex,fragment),particleBuffer=gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER,particleBuffer);
 gl.bufferData(gl.ARRAY_BUFFER,drawData.byteLength,gl.DYNAMIC_DRAW);
-const u={};for(const key of [...Object.keys(params),'balance','aspect','size'])u[key]=gl.getUniformLocation(particles,key);
+const u={};for(const key of [...Object.keys(params),'balance','aspect','size','birthSize'])u[key]=gl.getUniformLocation(particles,key);
 const particleAttr=gl.getAttribLocation(particles,'particle');
+const opacityAttr=gl.getAttribLocation(particles,'opacity');
+gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 
 function configureDensity(){
  const step=Math.max(params.grain*.70,Math.sqrt(cssWidth*cssHeight*DOMAIN*DOMAIN/400000));
@@ -125,13 +132,13 @@ function replenish(){
  }else count++;
  const k=index*4;
  data[k]=((c%nx+.35+random()*.3)/nx-.5)*aspect*DOMAIN;data[k+1]=((Math.floor(c/nx)+.35+random()*.3)/ny-.5)*DOMAIN;
- data[k+2]=random();data[k+3]=random();selected[index]=1;occupancy[c]++;added++;
+ data[k+2]=random();data[k+3]=random();selected[index]=1;fadeProgress[index]=0;occupancy[c]++;added++;
  }
 }
 function seedParticles(){
  randomState=INITIAL_RANDOM_SEED;
  count=0;configureDensity();count=Math.min(MAX_PARTICLES,nx*ny);
- for(let i=0;i<count;i++){const k=i*4;data[k]=((i%nx+.5)/nx-.5)*aspect*DOMAIN;data[k+1]=((Math.floor(i/nx)+.5)/ny-.5)*DOMAIN;data[k+2]=random();data[k+3]=random();selected[i]=1;}
+ for(let i=0;i<count;i++){const k=i*4;data[k]=((i%nx+.5)/nx-.5)*aspect*DOMAIN;data[k+1]=((Math.floor(i/nx)+.5)/ny-.5)*DOMAIN;data[k+2]=random();data[k+3]=random();selected[i]=1;fadeProgress[i]=1;}
  advect(0);needsDraw=true;
 }
 function resize(){
@@ -184,11 +191,13 @@ function updateField(dt){
  }
 }
 function advect(dt){
+ const fadeStep=dt/FADE_SECONDS;
  occupancy.fill(0);drawCount=0;
  const width=aspect*DOMAIN,height=DOMAIN;
  const sx=(GX-1)/width,sy=(GY-1)/height,half=width*.5;
  for(let i=0;i<count;i++){
  const k=i*4;
+ if(fadeProgress[i]<1)fadeProgress[i]=Math.min(1,fadeProgress[i]+fadeStep);
  const gx=Math.max(0,Math.min(GX-1.00001,(data[k]+half)*sx)),gy=Math.max(0,Math.min(GY-1.00001,(data[k+1]+height*.5)*sy));
  const x=gx|0,y=gy|0,fx=gx-x,fy=gy-y,f=y*GX+x;
  const ux=(fieldX[f]*(1-fx)+fieldX[f+1]*fx)*(1-fy)+(fieldX[f+GX]*(1-fx)+fieldX[f+GX+1]*fx)*fy;
@@ -203,7 +212,7 @@ function advect(dt){
  const cx=Math.max(0,Math.min(nx-1,((px/width+.5)*nx)|0)),cy=Math.max(0,Math.min(ny-1,((py/height+.5)*ny)|0));occupancy[cy*nx+cx]++;
  const margin=params.grain*(1+params.grainVariation*.008)/cssHeight;
  if(Math.abs(px)>aspect*.5+margin||Math.abs(py)>.5+margin)continue;
- const out=drawCount++*4;drawData[out]=px;drawData[out+1]=py;drawData[out+2]=data[k+2];drawData[out+3]=data[k+3];
+ const out=drawCount++*5;drawData[out]=px;drawData[out+1]=py;drawData[out+2]=data[k+2];drawData[out+3]=data[k+3];drawData[out+4]=fadeProgress[i];
  }
 }
 function backgroundColor(){
@@ -217,9 +226,9 @@ function render(){
  const bg=backgroundColor();gl.clearColor(bg[0],bg[1],bg[2],1);
  gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(particles);
  for(const key of Object.keys(params))if(u[key]!==null)gl.uniform1f(u[key],params[key]);
- gl.uniform3f(u.balance,params.red,params.green,params.blue);gl.uniform1f(u.aspect,aspect);gl.uniform1f(u.size,params.grain*ratio);
- gl.bindBuffer(gl.ARRAY_BUFFER,particleBuffer);gl.bufferSubData(gl.ARRAY_BUFFER,0,drawData.subarray(0,drawCount*4));
- gl.enableVertexAttribArray(particleAttr);gl.vertexAttribPointer(particleAttr,4,gl.FLOAT,false,0,0);gl.drawArrays(gl.POINTS,0,drawCount);
+ gl.uniform3f(u.balance,params.red,params.green,params.blue);gl.uniform1f(u.aspect,aspect);gl.uniform1f(u.size,params.grain*ratio);gl.uniform1f(u.birthSize,2*ratio);
+ gl.bindBuffer(gl.ARRAY_BUFFER,particleBuffer);gl.bufferSubData(gl.ARRAY_BUFFER,0,drawData.subarray(0,drawCount*5));
+ gl.enableVertexAttribArray(particleAttr);gl.vertexAttribPointer(particleAttr,4,gl.FLOAT,false,20,0);gl.enableVertexAttribArray(opacityAttr);gl.vertexAttribPointer(opacityAttr,1,gl.FLOAT,false,20,16);gl.drawArrays(gl.POINTS,0,drawCount);
  if(recording&&recording.context){const r=recording;r.context.drawImage(canvas,0,0,r.output.width,r.output.height);}
  needsDraw=false;
 }
