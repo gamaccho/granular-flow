@@ -402,10 +402,47 @@ function cullHiddenParticles(){
  for(let i=0;i<drawCount;i++)if(occlusionKeep[i]){const from=i*5,to=kept++*5;for(let j=0;j<5;j++)culledData[to+j]=drawData[from+j];}
  return kept;
 }
+// Opt-in diagnostics: no overlay or timings in ordinary viewing mode.
+const meterEnabled=new URLSearchParams(window.location?.search||'').get('debug')==='1';
+const meter=meterEnabled?document.createElement('pre'):null;
+const meterState={frames:0,elapsed:0,lastUpdate:0,cpu:0,cull:0,submitted:0,culling:false,previous:null,slow:null};
+if(meter){
+ meter.setAttribute('aria-label','描画診断メーター');
+ meter.style.cssText='position:fixed;left:8px;top:max(8px,env(safe-area-inset-top));z-index:10;margin:0;padding:10px;border-radius:8px;background:#080b12df;color:#b6fff1;font:11px/1.5 ui-monospace,monospace;pointer-events:none;max-width:calc(100vw - 16px);white-space:pre-wrap';
+ meter.textContent='計測を開始しています…';document.body.append(meter);
+}
+function updateMeter(now,frameMs){
+ if(!meter)return;
+ if(frameMs>0&&frameMs<2000){
+ meterState.frames++;meterState.elapsed+=frameMs;
+ if(frameMs>=40&&meterState.previous)meterState.slow={...meterState.previous,frameMs,time:now};
+ }
+ meterState.previous={speed:params.speed,fold:params.fold,grain:params.grain,viscosity:params.viscosity,cpu:meterState.cpu,cull:meterState.cull,culling:meterState.culling};
+ if(now-meterState.lastUpdate<300)return;
+ const fps=meterState.elapsed?meterState.frames*1000/meterState.elapsed:0;
+ const avg=meterState.frames?meterState.elapsed/meterState.frames:0;
+ const slow=meterState.slow;
+ meter.textContent=`FPS ${fps.toFixed(1)} | 平均間隔 ${avg.toFixed(1)} ms
+直近間隔 ${frameMs.toFixed(1)} ms | JS処理 ${meterState.cpu.toFixed(1)} ms
+隠れ判定 ${meterState.culling?'ON':'OFF'} / ${meterState.cull.toFixed(1)} ms
+速度 ${params.speed.toFixed(2)} | 渦 ${params.fold.toFixed(2)}
+粘度 ${params.viscosity.toFixed(2)} | 粒径 ${params.grain.toFixed(2)} px
+粒数 ${count.toLocaleString()} | 画面付近 ${drawCount.toLocaleString()}
+描画 ${meterState.submitted.toLocaleString()} | 省略 ${(drawCount-meterState.submitted).toLocaleString()}
+解像度 ${canvas.width} × ${canvas.height} | 陰影最適化 ${shadingCacheEnabled?'ON':'OFF'}
+※ JS処理はGPU時間を含みません`;
+ if(slow)meter.textContent+=`
+直近の遅延：${slow.frameMs.toFixed(1)} ms（${Math.floor((now-slow.time)/1000)}秒前）
+速度 ${slow.speed.toFixed(2)} / 渦 ${slow.fold.toFixed(2)} / 粒径 ${slow.grain.toFixed(2)}
+JS ${slow.cpu.toFixed(1)} ms / 判定 ${slow.culling?'ON':'OFF'} ${slow.cull.toFixed(1)} ms`;
+ meterState.frames=0;meterState.elapsed=0;meterState.lastUpdate=now;
+}
 function render(){
+ const cullStarted=meterEnabled?performance.now():0;
  const useOcclusion=shouldCullParticles(params.grain);
  const submittedCount=useOcclusion?cullHiddenParticles():drawCount;
  const submittedData=useOcclusion?culledData:drawData;
+ if(meterEnabled){meterState.cull=performance.now()-cullStarted;meterState.culling=useOcclusion;meterState.submitted=submittedCount;}
  const bg=backgroundColor();gl.clearColor(bg[0],bg[1],bg[2],1);
  gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(particles);
  for(const key of parameterKeys)if(u[key]!==null)gl.uniform1f(u[key],params[key]);
@@ -421,10 +458,12 @@ function render(){
  needsDraw=false;
 }
 let contextLost=false;canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();contextLost=true;fail('描画が中断されました。ページを再読み込みしてください。');});
-document.addEventListener('visibilitychange',()=>{clearDrag();last=performance.now();spoon.pendingX=0;spoon.pendingY=0;});
+document.addEventListener('visibilitychange',()=>{if(meterEnabled){meterState.frames=0;meterState.elapsed=0;meterState.previous=null;}clearDrag();last=performance.now();spoon.pendingX=0;spoon.pendingY=0;});
 function animate(now){
  if(contextLost)return;
- const dt=Math.min((now-last)/1000,.025);last=now;
+ const frameMs=now-last;
+ const dt=Math.min(frameMs/1000,.025);last=now;
+ const cpuStarted=meterEnabled?performance.now():0;
  if(!document.hidden){
  updateAutomation(dt*interactionMultiplier(now));
 
@@ -434,6 +473,7 @@ function animate(now){
  advect(dt);replenish();needsDraw=true;
  }
  if(needsDraw)render();
+ if(meterEnabled){meterState.cpu=performance.now()-cpuStarted;updateMeter(now,frameMs);}
  }
  requestAnimationFrame(animate);
 }
