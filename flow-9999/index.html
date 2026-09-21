@@ -16,13 +16,13 @@ const definitions=[
  ['grainVariation','粒径のバリエーション',0,100,1,50,'%']]],
  ['色 / HSL',[
  ['hue','色相',0,360,1,260,'°'],
- ['hueRange','色相の幅',0,360,1,120,'°'],
+ ['hueRange','色相の幅',0,360,1,50,'°'],
  ['saturation','彩度',40,100,1,70,'%'],
- ['lightness','明度',10,90,1,60,'%']]],
+ ['lightness','明度',30,90,1,70,'%']]],
  ['カラーバランス / BALANCE',[
- ['red','シアン ← → レッド',-100,100,1,0,''],
+ ['red','シアン ← → レッド',-100,100,1,-100,''],
  ['green','マゼンタ ← → グリーン',-100,100,1,0,''],
- ['blue','イエロー ← → ブルー',-100,100,1,0,'']]]];
+ ['blue','イエロー ← → ブルー',-100,100,1,100,'']]]];
 const params={roughness:1,exposure:1.10};
 for(const [,items]of definitions)for(const [key,,,,,value]of items)params[key]=value;
 Object.assign(params,{grain:6,relief:.30,grainVariation:100});
