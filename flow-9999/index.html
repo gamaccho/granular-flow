@@ -295,18 +295,65 @@ function backgroundColor(){
  const exposure=Math.sqrt(params.exposure);
  return [channel(0)+params.red*.0022,channel(8)+params.green*.0022,channel(4)+params.blue*.0022].map(v=>Math.max(.045,Math.min(.9,v*exposure)));
 }
+// Conservative tile coverage, traversed front-to-back; preserve original draw order.
+// Only fully opaque disks whose entire tile is safely inside can hide other grains.
+const occlusionEnabled=new URLSearchParams(window.location?.search||'').get('occlusion')!=='0';
+const occlusionKeep=new Uint8Array(MAX_PARTICLES);
+const culledData=new Float32Array(MAX_PARTICLES*5);
+let coverage=new Uint8Array(0),coverageWidth=0,coverageHeight=0;
+const COVER_TILE=8;
+function cullHiddenParticles(){
+ const cols=Math.ceil(canvas.width/COVER_TILE),rows=Math.ceil(canvas.height/COVER_TILE);
+ if(cols!==coverageWidth||rows!==coverageHeight){coverageWidth=cols;coverageHeight=rows;coverage=new Uint8Array(cols*rows);}else coverage.fill(0);
+ const variation=params.grainVariation*.008,base=params.grain*ratio,birth=2*ratio;
+ for(let i=drawCount-1;i>=0;i--){
+ const k=i*5,px=drawData[k],py=drawData[k+1];occlusionKeep[i]=1;
+ // WebGL clips point primitives by their center, so offscreen centers cannot occlude.
+ if(Math.abs(px)>aspect*.5||Math.abs(py)>.5)continue;
+ const cx=(px/aspect+.5)*canvas.width,cy=(py+.5)*canvas.height;
+ const raw=drawData[k+2]*73.17+drawData[k+3]*19.31,seed=raw-Math.floor(raw);
+ // Account conservatively for GPU rounding near the fract discontinuity.
+ const uncertain=seed<.0001||seed>.9999;
+ const target=Math.max(1,base*(1+(seed*2-1)*variation));
+ const age=drawData[k+4],t=Math.max(0,Math.min(1,(age-1/3)*1.5)),growth=t*t*(3-2*t);
+ const pointSize=Math.min(birth,target)+(target-Math.min(birth,target))*growth;
+ const outer=(uncertain?Math.max(1,base*(1+variation)):pointSize)*.5+1;
+ const x0=Math.max(0,Math.floor((cx-outer)/COVER_TILE)),x1=Math.min(cols-1,Math.floor((cx+outer)/COVER_TILE));
+ const y0=Math.max(0,Math.floor((cy-outer)/COVER_TILE)),y1=Math.min(rows-1,Math.floor((cy+outer)/COVER_TILE));
+ let hidden=true;
+ for(let y=y0;y<=y1&&hidden;y++)for(let x=x0;x<=x1;x++)if(!coverage[y*cols+x]){hidden=false;break;}
+ if(hidden){occlusionKeep[i]=0;continue;}
+ if(age<1/3||uncertain)continue;
+ const inner=Math.max(0,pointSize*.5-1),r2=inner*inner;
+ for(let y=y0;y<=y1;y++){
+ const dy=Math.max(Math.abs(y*COVER_TILE-cy),Math.abs(Math.min(canvas.height,(y+1)*COVER_TILE)-cy));
+ if(dy>=inner)continue;
+ for(let x=x0;x<=x1;x++){
+ const cell=y*cols+x;if(coverage[cell])continue;
+ const dx=Math.max(Math.abs(x*COVER_TILE-cx),Math.abs(Math.min(canvas.width,(x+1)*COVER_TILE)-cx));
+ if(dx*dx+dy*dy<r2)coverage[cell]=1;
+ }
+ }
+ }
+ let kept=0;
+ for(let i=0;i<drawCount;i++)if(occlusionKeep[i]){const from=i*5,to=kept++*5;for(let j=0;j<5;j++)culledData[to+j]=drawData[from+j];}
+ return kept;
+}
 function render(){
+ const useOcclusion=occlusionEnabled&&params.grain>=12;
+ const submittedCount=useOcclusion?cullHiddenParticles():drawCount;
+ const submittedData=useOcclusion?culledData:drawData;
  const bg=backgroundColor();gl.clearColor(bg[0],bg[1],bg[2],1);
  gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(particles);
  for(const key of parameterKeys)if(u[key]!==null)gl.uniform1f(u[key],params[key]);
  gl.uniform3f(u.balance,params.red,params.green,params.blue);gl.uniform1f(u.aspect,aspect);gl.uniform1f(u.size,params.grain*ratio);gl.uniform1f(u.birthSize,2*ratio);
  const upload=uploadBuffers[uploadIndex];uploadIndex=(uploadIndex+1)%uploadBuffers.length;
  gl.bindBuffer(gl.ARRAY_BUFFER,upload.buffer);
- const requiredBytes=drawCount*20;
+ const requiredBytes=submittedCount*20;
  if(requiredBytes>upload.capacity){upload.capacity=Math.ceil(requiredBytes/65536)*65536;gl.bufferData(gl.ARRAY_BUFFER,upload.capacity,gl.DYNAMIC_DRAW);}
- gl.bufferSubData(gl.ARRAY_BUFFER,0,drawData.subarray(0,drawCount*5));
+ gl.bufferSubData(gl.ARRAY_BUFFER,0,submittedData.subarray(0,submittedCount*5));
  gl.enableVertexAttribArray(particleAttr);gl.vertexAttribPointer(particleAttr,4,gl.FLOAT,false,20,0);
- gl.enableVertexAttribArray(opacityAttr);gl.vertexAttribPointer(opacityAttr,1,gl.FLOAT,false,20,16);gl.drawArrays(gl.POINTS,0,drawCount);
+ gl.enableVertexAttribArray(opacityAttr);gl.vertexAttribPointer(opacityAttr,1,gl.FLOAT,false,20,16);gl.drawArrays(gl.POINTS,0,submittedCount);
 
  needsDraw=false;
 }
