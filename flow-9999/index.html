@@ -65,6 +65,8 @@ const data=new Float32Array(MAX_PARTICLES*4),drawData=new Float32Array(MAX_PARTI
 const selected=new Uint8Array(MAX_PARTICLES);
 const fadeProgress=new Float32Array(MAX_PARTICLES);
 const FADE_SECONDS=1.2;
+const offscreenDonors=new Uint32Array(MAX_PARTICLES);
+let offscreenDonorCount=0;
 let aspect=1,ratio=1,count=0,drawCount=0,simTime=0;
 let nx=1,ny=1,occupancy=new Uint32Array(1),donor=0;
 let cssWidth=0,cssHeight=0,needsDraw=true;
@@ -218,19 +220,17 @@ function replenish(){
  let added=0,donorChecks=0;
  for(let checks=0;checks<Math.min(4096,occupancy.length)&&added<256;checks++){
  const c=(random()*occupancy.length)|0;if(occupancy[c])continue;
- let index=count;
- if(count===MAX_PARTICLES){
- index=-1;
- while(donorChecks++<4096){
- donor=(donor+1)%count;
- if(!selected[donor]){index=donor;break;}
- const x=Math.min(nx-1,Math.max(0,((data[donor*4]/(aspect*DOMAIN)+.5)*nx)|0));
- const y=Math.min(ny-1,Math.max(0,((data[donor*4+1]/DOMAIN+.5)*ny)|0));
+ let index=-1;
+ // Reuse only particles entirely outside the viewport; keep at least one per cell.
+ while(offscreenDonorCount>0&&donorChecks<4096){
+ donorChecks++;
+ const candidate=offscreenDonors[--offscreenDonorCount],k=candidate*4;
+ const x=Math.min(nx-1,Math.max(0,((data[k]/(aspect*DOMAIN)+.5)*nx)|0));
+ const y=Math.min(ny-1,Math.max(0,((data[k+1]/DOMAIN+.5)*ny)|0));
  const old=y*nx+x;
- if(occupancy[old]>2){occupancy[old]--;index=donor;break;}
+ if(occupancy[old]>1){occupancy[old]--;index=candidate;break;}
  }
- if(index<0)break;
- }else count++;
+ if(index<0){if(count===MAX_PARTICLES)break;index=count++;}
  const k=index*4;
  data[k]=((c%nx+.35+random()*.3)/nx-.5)*aspect*DOMAIN;data[k+1]=((Math.floor(c/nx)+.35+random()*.3)/ny-.5)*DOMAIN;
  data[k+2]=random();data[k+3]=random();selected[index]=1;fadeProgress[index]=0;occupancy[c]++;added++;
@@ -308,13 +308,16 @@ function updateField(dt){
  }
 }
 function advect(dt){
- occupancy.fill(0);drawCount=0;
+ occupancy.fill(0);drawCount=0;offscreenDonorCount=0;
  const width=aspect*DOMAIN,height=DOMAIN;
  const sx=(GX-1)/width,sy=(GY-1)/height,half=width*.5;
  const fadeStep=dt/FADE_SECONDS,cellScaleX=nx/width,cellScaleY=ny/height;
  const cellOffsetX=nx*.5,cellOffsetY=ny*.5;
  const margin=params.grain*(1+params.grainVariation*.008)/cssHeight;
  const visibleX=aspect*.5+margin,visibleY=.5+margin;
+ // Guard for the largest future grain, not just its current animated diameter.
+ const recycleMargin=20*1.8/cssHeight;
+ const recycleX=aspect*.5+recycleMargin,recycleY=.5+recycleMargin;
  for(let i=0;i<count;i++){
  const k=i*4;
  if(fadeProgress[i]<1)fadeProgress[i]=Math.min(1,fadeProgress[i]+fadeStep);
@@ -330,7 +333,10 @@ function advect(dt){
  data[k]=px;data[k+1]=py;
  if(!selected[i])continue;
  const cx=Math.max(0,Math.min(nx-1,(px*cellScaleX+cellOffsetX)|0)),cy=Math.max(0,Math.min(ny-1,(py*cellScaleY+cellOffsetY)|0));occupancy[cy*nx+cx]++;
- if(Math.abs(px)>visibleX||Math.abs(py)>visibleY)continue;
+ if(Math.abs(px)>visibleX||Math.abs(py)>visibleY){
+ if(Math.abs(px)>recycleX||Math.abs(py)>recycleY)offscreenDonors[offscreenDonorCount++]=i;
+ continue;
+ }
  const out=drawCount++*5;drawData[out]=px;drawData[out+1]=py;drawData[out+2]=data[k+2];drawData[out+3]=data[k+3];
  drawData[out+4]=fadeProgress[i];
  }
