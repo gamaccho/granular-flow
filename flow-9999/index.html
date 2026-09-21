@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#171421"><title>Granular Flow — Autonomous</title>
+<style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#171421}canvas{display:block;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none}#error{display:none;position:fixed;inset:20px;padding:20px;color:white;background:#222;font:14px system-ui;pointer-events:none}</style></head>
+<body><canvas id="canvas" aria-label="自動的に色と流れが変わる、指で触れる粒のアート"></canvas><div id="error" role="alert"></div><script id="app-script">
+'use strict';
+// Full-coverage sphere-impostor rendering. This is an artistic flow field,
+// not a Navier–Stokes simulation. All fragments are opaque, including grain edges.
+const definitions=[
+ ['流れ / DYNAMICS',[
+ ['speed','流れる速さ',0,6,.01,3,''],
+ ['viscosity','粘りの強さ',.2,2.5,.01,1.35,''],
+ ['fold','渦・折り重なり',0,2,.01,1,'']]],
+ ['粒の質感 / MATERIAL',[
+ ['grain','粒の大きさ',2,28,.1,6,' px'],
+ ['relief','粒の立体感',0,1,.01,.5,''],
+ ['grainVariation','粒径のバリエーション',0,100,1,50,'%']]],
+ ['色 / HSL',[
+ ['hue','色相',0,360,1,260,'°'],
+ ['hueRange','色相の幅',0,360,1,120,'°'],
+ ['saturation','彩度',40,100,1,70,'%'],
+ ['lightness','明度',10,90,1,60,'%']]],
+ ['カラーバランス / BALANCE',[
+ ['red','シアン ← → レッド',-100,100,1,0,''],
+ ['green','マゼンタ ← → グリーン',-100,100,1,0,''],
+ ['blue','イエロー ← → ブルー',-100,100,1,0,'']]]];
+const params={roughness:1,exposure:1.10};
+for(const [,items]of definitions)for(const [key,,,,,value]of items)params[key]=value;
+// Each control traverses its full range independently. Half-cycles take 18–65s.
+const automation=definitions.flatMap(([,items])=>items.map(([key,,min,max,,,])=>{
+ const phase=Math.acos(1-2*(params[key]-min)/(max-min));
+ return {key,min,max,phase:Math.random()<.5?phase:Math.PI*2-phase,rate:Math.PI/(18+Math.random()*47),targetRate:Math.PI/(18+Math.random()*47),remaining:3+Math.random()*9};
+}));
+function updateAutomation(dt){
+ for(const state of automation){
+ state.remaining-=dt;
+ if(state.remaining<=0){state.targetRate=Math.PI/(18+Math.random()*47);state.remaining=3+Math.random()*9;}
+ state.rate+=(state.targetRate-state.rate)*(1-Math.exp(-dt/3));
+ state.phase=(state.phase+state.rate*dt)%(Math.PI*2);
+ params[state.key]=state.min+(state.max-state.min)*(.5-.5*Math.cos(state.phase));
+ }
+}
+const canvas=document.querySelector('#canvas'),gl=canvas.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
+function fail(message){const el=document.querySelector('#error');el.style.display='block';el.textContent=message}
+if(!gl){fail('WebGLが利用できません。ブラウザーのハードウェアアクセラレーションを有効にして再読み込みしてください。')}else{try{start()}catch(error){fail('描画を開始できませんでした: '+error.message);console.error(error)}}
+function start(){
+// Persistent particle advection in a smooth, divergence-free velocity field.
+// Viscosity damps velocity, never displacement; there are no rest positions.
+const DOMAIN=1.5;
+const GX=80,GY=60,fieldX=new Float32Array(GX*GY),fieldY=new Float32Array(GX*GY);
+const MAX_PARTICLES=650000;
+const data=new Float32Array(MAX_PARTICLES*4),drawData=new Float32Array(MAX_PARTICLES*4);
+const selected=new Uint8Array(MAX_PARTICLES);
+let aspect=1,ratio=1,count=0,drawCount=0,simTime=0;
+let nx=1,ny=1,occupancy=new Uint32Array(1),donor=0;
+let cssWidth=0,cssHeight=0,needsDraw=true;
+const centers=new Float32Array(8);
+// Independent seeded motion: particle replenishment cannot change vortex paths.
+const vortexMotion=Array.from({length:4},()=>({}));
+let vortexRandomState=0x9375ab21;
+function vortexRandom(){
+ vortexRandomState=(Math.imul(vortexRandomState,1664525)+1013904223)>>>0;
+ return vortexRandomState/4294967296;
+}
+function nextVortexTarget(v){
+ v.fromX=v.x;v.fromY=v.y;
+ v.toX=(vortexRandom()-.5)*.90;v.toY=(vortexRandom()-.5)*.90;
+ v.elapsed=0;v.duration=14+vortexRandom()*14;
+}
+function resetVortices(){
+ vortexRandomState=0x9375ab21;
+ for(let j=0;j<4;j++){
+ const v=vortexMotion[j];
+ v.x=(j%2?1:-1)*(.16+vortexRandom()*.14);
+ v.y=(j<2?1:-1)*(.16+vortexRandom()*.14);
+ nextVortexTarget(v);centers[j*2]=v.x*aspect;centers[j*2+1]=v.y;
+ }
+}
+function moveVortices(dt){
+ const elapsed=dt*params.speed/3;
+ for(let j=0;j<4;j++){
+ const v=vortexMotion[j];v.elapsed+=elapsed;
+ while(v.elapsed>=v.duration){const remainder=v.elapsed-v.duration;v.x=v.toX;v.y=v.toY;nextVortexTarget(v);v.elapsed=remainder;}
+ const t=v.elapsed/v.duration;
+ // Quintic easing keeps position, velocity and acceleration continuous at joins.
+ const ease=t*t*t*(t*(t*6-15)+10);
+ v.x=v.fromX+(v.toX-v.fromX)*ease;v.y=v.fromY+(v.toY-v.fromY)*ease;
+ centers[j*2]=v.x*aspect;centers[j*2+1]=v.y;
+ }
+}
+let paused=false,boost=0,drag=null,last=performance.now(),fpsTime=last,frames=0;
+const INITIAL_RANDOM_SEED=0x6d2b79f5;
+let randomState=INITIAL_RANDOM_SEED;
+function random(){
+ randomState=(Math.imul(randomState,1664525)+1013904223)>>>0;
+ return randomState/4294967296;
+}
+const spoon={x:0,y:0,vx:0,vy:0,pendingX:0,pendingY:0};
+const vertex=`attribute vec4 particle;uniform float aspect,size,grainVariation;varying vec2 seed;
+void main(){gl_Position=vec4(particle.x*2./aspect,particle.y*2.,0.,1.);// Stable per-particle variation: adjusting the slider never changes positions.
+float variation=grainVariation*.008;
+float sizeSeed=fract(particle.z*73.17+particle.w*19.31);
+gl_PointSize=max(1.,size*(1.+(sizeSeed*2.-1.)*variation));seed=particle.zw;}`;
+const colorCode=`
+uniform float hue,hueRange,saturation,lightness,exposure,relief,roughness;
+uniform vec3 balance;
+vec3 hsl(float h,float s,float l){vec3 c=clamp(abs(mod(h*6.+vec3(0.,4.,2.),6.)-3.)-1.,0.,1.);return l+s*(c-.5)*(1.-abs(2.*l-1.));}
+vec3 pigment(vec2 seed){
+ float upper=clamp(lightness*.01+.19,.06,.9);
+ float lower=min(upper,clamp(lightness*.01-.19,.06,.9)*1.2);
+ return clamp(hsl(fract((hue+(seed.x-.5)*hueRange)/360.),saturation*.01,mix(lower,upper,seed.y))+balance*.0022,.012,.97);
+}
+`;
+const fragment=`precision highp float;varying vec2 seed;${colorCode}
+void main(){vec2 d=(gl_PointCoord-.5)*2.;float rr=dot(d,d);
+
+if(rr>1.)discard;
+vec3 n=normalize(vec3(d.x,-d.y,sqrt(max(.001,1.-rr))));
+n=normalize(mix(vec3(0.,0.,1.),n,.65+.35*relief));
+vec3 light=normalize(vec3(-.45,.6,1.));float contact=mix(.52,1.,smoothstep(0.,.6,n.z));
+float spec=pow(max(dot(n,normalize(light+vec3(0.,0.,1.))),0.),mix(110.,12.,roughness));
+vec3 linear=pow(pigment(seed),vec3(2.2))*(.14+.69*max(dot(n,light),0.))*contact;
+linear+=vec3(spec*(.035+.055*(1.-roughness)))*contact;
+gl_FragColor=vec4(pow(max(linear*exposure,vec3(.0001)),vec3(1./2.2)),1.);}`;
+function compile(type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));return shader;}
+function program(v,f){const p=gl.createProgram();gl.attachShader(p,compile(gl.VERTEX_SHADER,v));gl.attachShader(p,compile(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));return p;}
+const particles=program(vertex,fragment),particleBuffer=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,particleBuffer);
+gl.bufferData(gl.ARRAY_BUFFER,drawData.byteLength,gl.DYNAMIC_DRAW);
+const u={};for(const key of [...Object.keys(params),'balance','aspect','size'])u[key]=gl.getUniformLocation(particles,key);
+const particleAttr=gl.getAttribLocation(particles,'particle');
+
+function configureDensity(){
+ const step=Math.max(params.grain*.70,Math.sqrt(cssWidth*cssHeight*DOMAIN*DOMAIN/400000));
+ nx=Math.max(1,Math.floor(cssWidth*DOMAIN/step));ny=Math.max(1,Math.floor(cssHeight*DOMAIN/step));
+ if(occupancy.length!==nx*ny)occupancy=new Uint32Array(nx*ny);
+
+ // Keep all positions in the simulation; stable subsampling avoids enormous
+ // overdraw when diameter grows. Hidden grains reappear at their current positions.
+ const stride=Math.max(1,Math.floor(count/(nx*ny*1.15)));
+ for(let i=0;i<count;i++)selected[i]=i%stride===0?1:0;
+ advect(0);needsDraw=true;
+}
+function replenish(){
+ // Fixed per-frame budgets: no full rescans or large allocations during playback.
+ let added=0,donorChecks=0;
+ for(let checks=0;checks<Math.min(4096,occupancy.length)&&added<256;checks++){
+ const c=(random()*occupancy.length)|0;if(occupancy[c])continue;
+ let index=count;
+ if(count===MAX_PARTICLES){
+ index=-1;
+ while(donorChecks++<4096){
+ donor=(donor+1)%count;
+ if(!selected[donor]){index=donor;break;}
+ const x=Math.min(nx-1,Math.max(0,((data[donor*4]/(aspect*DOMAIN)+.5)*nx)|0));
+ const y=Math.min(ny-1,Math.max(0,((data[donor*4+1]/DOMAIN+.5)*ny)|0));
+ const old=y*nx+x;
+ if(occupancy[old]>2){occupancy[old]--;index=donor;break;}
+ }
+ if(index<0)break;
+ }else count++;
+ const k=index*4;
+ data[k]=((c%nx+.35+random()*.3)/nx-.5)*aspect*DOMAIN;data[k+1]=((Math.floor(c/nx)+.35+random()*.3)/ny-.5)*DOMAIN;
+ data[k+2]=random();data[k+3]=random();selected[index]=1;occupancy[c]++;added++;
+ }
+}
+function seedParticles(){
+ randomState=INITIAL_RANDOM_SEED;resetVortices();
+ count=0;configureDensity();count=Math.min(MAX_PARTICLES,nx*ny);
+ for(let i=0;i<count;i++){const k=i*4;data[k]=((i%nx+.5)/nx-.5)*aspect*DOMAIN;data[k+1]=((Math.floor(i/nx)+.5)/ny-.5)*DOMAIN;data[k+2]=random();data[k+3]=random();selected[i]=1;}
+ advect(0);needsDraw=true;
+}
+function resize(){
+
+ const rect=canvas.getBoundingClientRect();if(!rect.width||!rect.height)return;
+ if(Math.abs(rect.width-cssWidth)<.5&&Math.abs(rect.height-cssHeight)<.5)return;
+ clearDrag();
+ const previousAspect=aspect;cssWidth=rect.width;cssHeight=rect.height;
+ ratio=Math.min(devicePixelRatio||1,1.5,1600/Math.max(cssWidth,cssHeight));
+ canvas.width=Math.max(1,Math.round(cssWidth*ratio));canvas.height=Math.max(1,Math.round(cssHeight*ratio));aspect=cssWidth/cssHeight;
+ for(let i=0;i<count;i++)data[i*4]*=aspect/previousAspect;
+ gl.viewport(0,0,canvas.width,canvas.height);
+ if(count)configureDensity();else seedParticles();
+}
+new ResizeObserver(resize).observe(canvas);resize();
+// Update density only when its grid changes, not for every tiny size change.
+function updateDensityGrid(){
+ const step=Math.max(params.grain*.70,Math.sqrt(cssWidth*cssHeight*DOMAIN*DOMAIN/400000));
+ const nextX=Math.max(1,Math.floor(cssWidth*DOMAIN/step)),nextY=Math.max(1,Math.floor(cssHeight*DOMAIN/step));
+ if(nextX!==nx||nextY!==ny)configureDensity();
+}
+function location(e){const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left-r.width/2)/r.height,y:(r.height/2-e.clientY+r.top)/r.height};}
+function clearDrag(){
+ const id=drag?.id;drag=null;
+ spoon.pendingX=0;spoon.pendingY=0;
+ if(id!==undefined){try{if(canvas.hasPointerCapture(id))canvas.releasePointerCapture(id);}catch{}}
+}
+
+canvas.addEventListener('pointerdown',e=>{
+ if(paused||!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0))return;
+ // A new primary gesture supersedes any missed end/cancel event.
+ clearDrag();drag={id:e.pointerId,...location(e)};spoon.x=drag.x;spoon.y=drag.y;
+ try{canvas.setPointerCapture(e.pointerId);}catch{}
+});
+canvas.addEventListener('pointermove',e=>{
+ if(!drag||e.pointerId!==drag.id||paused)return;
+ if(e.pointerType==='mouse'&&e.buttons===0){clearDrag();return;}
+ const p=location(e);spoon.pendingX+=p.x-drag.x;spoon.pendingY+=p.y-drag.y;spoon.x=p.x;spoon.y=p.y;drag.x=p.x;drag.y=p.y;
+});
+for(const name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,e=>{if(drag&&drag.id===e.pointerId)clearDrag();});
+for(const name of ['pointerup','pointercancel'])window.addEventListener(name,e=>{if(drag&&drag.id===e.pointerId)clearDrag();},true);
+window.addEventListener('blur',clearDrag);
+function updateField(dt){
+ const ease=1-Math.exp(-dt*12);
+ const vx=spoon.pendingX/Math.max(dt,.001),vy=spoon.pendingY/Math.max(dt,.001);
+ const speed=Math.hypot(vx,vy),scale=Math.min(1,1.6/Math.max(speed,.001));
+ spoon.vx+=(vx*scale-spoon.vx)*ease;spoon.vy+=(vy*scale-spoon.vy)*ease;spoon.pendingX=0;spoon.pendingY=0;
+ moveVortices(dt);
+ const ambient=params.speed*.085*(1+boost*.8)/(1+params.viscosity*.22);
+ const response=1-Math.exp(-dt/(.13+params.viscosity*.20));
+ const radius=Math.max(.18,Math.min(aspect,1)*.40),r2=radius*radius;
+ for(let y=0;y<GY;y++)for(let x=0;x<GX;x++){
+ const px=(x/(GX-1)-.5)*aspect*DOMAIN,py=(y/(GY-1)-.5)*DOMAIN;let ux=0,uy=0,stream=0;
+ for(let j=0;j<4;j++){const dx=px-centers[j*2],dy=py-centers[j*2+1];const weight=Math.exp(-(dx*dx+dy*dy)/(2*r2));const spin=(j%2?-1:1)*ambient*(.5+params.fold*.5);ux+=-dy/radius*weight*spin;uy+=dx/radius*weight*spin;stream+=spin*radius*weight;}
+ // Stream-function dipole: fluid ahead follows the rod, with circulation around
+ // both sides. This drives VELOCITY and keeps advected positions after release.
+ const dx=px-spoon.x,dy=py-spoon.y,rr=.13*.13;
+ const envelope=Math.exp(-(dx*dx+dy*dy)/(2*rr));
+ const psi=spoon.vx*dy-spoon.vy*dx;
+ ux+=(spoon.vx-dy*psi/rr)*envelope*1.9;
+ uy+=(spoon.vy+dx*psi/rr)*envelope*1.9;
+ stream+=psi*envelope*1.9;
+ // Taper the stream function only at the OUTER reservoir wall. Its derivatives
+ // turn the flow smoothly, so particles can leave the viewport and curl back.
+ const hx=aspect*DOMAIN*.5,hy=DOMAIN*.5;
+ const ex=Math.max(0,1-(px/hx)*(px/hx)),ey=Math.max(0,1-(py/hy)*(py/hy));
+ const wx=ex*ex,wy=ey*ey,dwx=-4*px*ex/(hx*hx),dwy=-4*py*ey/(hy*hy);
+ ux=ux*wx*wy+stream*wx*dwy;uy=uy*wx*wy-stream*dwx*wy;
+ const i=y*GX+x;fieldX[i]+=(ux-fieldX[i])*response;fieldY[i]+=(uy-fieldY[i])*response;
+ }
+}
+function advect(dt){
+ occupancy.fill(0);drawCount=0;
+ const width=aspect*DOMAIN,height=DOMAIN;
+ const sx=(GX-1)/width,sy=(GY-1)/height,half=width*.5;
+ for(let i=0;i<count;i++){
+ const k=i*4;
+ const gx=Math.max(0,Math.min(GX-1.00001,(data[k]+half)*sx)),gy=Math.max(0,Math.min(GY-1.00001,(data[k+1]+height*.5)*sy));
+ const x=gx|0,y=gy|0,fx=gx-x,fy=gy-y,f=y*GX+x;
+ const ux=(fieldX[f]*(1-fx)+fieldX[f+1]*fx)*(1-fy)+(fieldX[f+GX]*(1-fx)+fieldX[f+GX+1]*fx)*fy;
+ const uy=(fieldY[f]*(1-fx)+fieldY[f+1]*fx)*(1-fy)+(fieldY[f+GX]*(1-fx)+fieldY[f+GX+1]*fx)*fy;
+ let px=data[k]+ux*dt,py=data[k+1]+uy*dt;
+ // Never wrap or reflect at the viewport edge; hidden positions remain alive.
+ // Numerical safety at the distant, no-through-flow reservoir wall only.
+ px=Math.max(-half+1e-6,Math.min(half-1e-6,px));
+ py=Math.max(-height*.5+1e-6,Math.min(height*.5-1e-6,py));
+ data[k]=px;data[k+1]=py;
+ if(!selected[i])continue;
+ const cx=Math.max(0,Math.min(nx-1,((px/width+.5)*nx)|0)),cy=Math.max(0,Math.min(ny-1,((py/height+.5)*ny)|0));occupancy[cy*nx+cx]++;
+ const margin=params.grain*(1+params.grainVariation*.008)/cssHeight;
+ if(Math.abs(px)>aspect*.5+margin||Math.abs(py)>.5+margin)continue;
+ const out=drawCount++*4;drawData[out]=px;drawData[out+1]=py;drawData[out+2]=data[k+2];drawData[out+3]=data[k+3];
+ }
+}
+function backgroundColor(){
+ const h=((params.hue%360)+360)%360/360,s=params.saturation*.0065;
+ const l=Math.max(.12,Math.min(.70,params.lightness*.01-.10));
+ function channel(n){const k=(n+h*12)%12;return l-s*Math.min(l,1-l)*Math.max(-1,Math.min(k-3,9-k,1));}
+ const exposure=Math.sqrt(params.exposure);
+ return [channel(0)+params.red*.0022,channel(8)+params.green*.0022,channel(4)+params.blue*.0022].map(v=>Math.max(.045,Math.min(.9,v*exposure)));
+}
+function render(){
+ const bg=backgroundColor();gl.clearColor(bg[0],bg[1],bg[2],1);
+ gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(particles);
+ for(const key of Object.keys(params))if(u[key]!==null)gl.uniform1f(u[key],params[key]);
+ gl.uniform3f(u.balance,params.red,params.green,params.blue);gl.uniform1f(u.aspect,aspect);gl.uniform1f(u.size,params.grain*ratio);
+ gl.bindBuffer(gl.ARRAY_BUFFER,particleBuffer);gl.bufferSubData(gl.ARRAY_BUFFER,0,drawData.subarray(0,drawCount*4));
+ gl.enableVertexAttribArray(particleAttr);gl.vertexAttribPointer(particleAttr,4,gl.FLOAT,false,0,0);gl.drawArrays(gl.POINTS,0,drawCount);
+
+ needsDraw=false;
+}
+let contextLost=false;canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();contextLost=true;fail('描画が中断されました。ページを再読み込みしてください。');});
+document.addEventListener('visibilitychange',()=>{clearDrag();if(document.hidden)stopRecording('タブが非表示になったため録画を中止しました。表示したまま再度お試しください。');last=performance.now();spoon.pendingX=0;spoon.pendingY=0;});
+function animate(now){
+ if(contextLost)return;
+ const dt=Math.min((now-last)/1000,.025);last=now;
+ if(!document.hidden){
+ updateAutomation(dt);updateDensityGrid();
+
+ if(!paused){
+ simTime+=dt*params.speed*.25;boost*=Math.exp(-dt*.5);updateField(dt);
+ // One persistent integration pass; density accounting and upload packing share it.
+ advect(dt);replenish();needsDraw=true;
+ }
+ if(needsDraw)render();
+ }
+ requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+}
+
+</script></body></html>
