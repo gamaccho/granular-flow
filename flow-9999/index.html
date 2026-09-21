@@ -154,10 +154,10 @@ float spec=pow(max(dot(n,normalize(light+vec3(0.,0.,1.))),0.),mix(110.,12.,rough
 linear=particlePigment*(.14+.69*max(dot(n,light),0.))*contact;
 linear+=vec3(spec*(.035+.055*(1.-roughness)))*contact;
 }else{
-vec4 packed=texture2D(sphereLighting,gl_PointCoord);
+vec4 lightingSample=texture2D(sphereLighting,gl_PointCoord);
 // Two 16-bit coefficients in RG/BA; decoding commutes with bilinear filtering.
 vec2 weights=vec2(65280./65535.,255./65535.);
-float diffuse=dot(packed.rg,weights),specular=dot(packed.ba,weights)*.09;
+float diffuse=dot(lightingSample.rg,weights),specular=dot(lightingSample.ba,weights)*.09;
 linear=particlePigment*diffuse+vec3(specular);
 }
 gl_FragColor=vec4(pow(max(linear*exposure,vec3(.0001)),vec3(1./2.2)),particleOpacity);}`;
