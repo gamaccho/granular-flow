@@ -25,11 +25,24 @@ const definitions=[
  ['blue','イエロー ← → ブルー',-100,100,1,0,'']]]];
 const params={roughness:1,exposure:1.10};
 for(const [,items]of definitions)for(const [key,,,,,value]of items)params[key]=value;
+Object.assign(params,{grain:6,relief:.30,grainVariation:100});
+const fixedMaterial=new Set(['grain','relief','grainVariation']);
 // Each control traverses its full range independently. Half-cycles take 18–65s.
-const automation=definitions.flatMap(([,items])=>items.map(([key,,min,max,,,])=>{
+const automation=definitions.flatMap(([,items])=>items.filter(([key])=>!fixedMaterial.has(key)).map(([key,,min,max,,,])=>{
  const phase=Math.acos(1-2*(params[key]-min)/(max-min));
  return {key,min,max,phase:Math.random()<.5?phase:Math.PI*2-phase,rate:Math.PI/(18+Math.random()*47),targetRate:Math.PI/(18+Math.random()*47),remaining:3+Math.random()*9};
 }));
+// Real-time gesture envelope: 250ms rise, hold until 2s, then 2s return.
+let interactionStart=-Infinity,interactionFrom=1;
+function smoothTransition(t){return t*t*t*(t*(t*6-15)+10);}
+function interactionMultiplier(now){
+ const elapsed=(now-interactionStart)/1000;
+ if(elapsed<.25)return interactionFrom+(2-interactionFrom)*smoothTransition(Math.max(0,elapsed/.25));
+ if(elapsed<2)return 2;
+ if(elapsed<4)return 2-smoothTransition((elapsed-2)/2);
+ return 1;
+}
+function triggerInteraction(now){interactionFrom=interactionMultiplier(now);interactionStart=now;}
 function updateAutomation(dt){
  for(const state of automation){
  state.remaining-=dt;
@@ -182,12 +195,6 @@ function resize(){
  if(count)configureDensity();else seedParticles();
 }
 new ResizeObserver(resize).observe(canvas);resize();
-// Update density only when its grid changes, not for every tiny size change.
-function updateDensityGrid(){
- const step=Math.max(params.grain*.70,Math.sqrt(cssWidth*cssHeight*DOMAIN*DOMAIN/400000));
- const nextX=Math.max(1,Math.floor(cssWidth*DOMAIN/step)),nextY=Math.max(1,Math.floor(cssHeight*DOMAIN/step));
- if(nextX!==nx||nextY!==ny)configureDensity();
-}
 function location(e){const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left-r.width/2)/r.height,y:(r.height/2-e.clientY+r.top)/r.height};}
 function clearDrag(){
  const id=drag?.id;drag=null;
@@ -198,6 +205,7 @@ function clearDrag(){
 canvas.addEventListener('pointerdown',e=>{
  if(paused||!e.isPrimary||(e.pointerType==='mouse'&&e.button!==0))return;
  // A new primary gesture supersedes any missed end/cancel event.
+ triggerInteraction(performance.now());
  clearDrag();drag={id:e.pointerId,...location(e)};spoon.x=drag.x;spoon.y=drag.y;
  try{canvas.setPointerCapture(e.pointerId);}catch{}
 });
@@ -284,7 +292,7 @@ function animate(now){
  if(contextLost)return;
  const dt=Math.min((now-last)/1000,.025);last=now;
  if(!document.hidden){
- updateAutomation(dt);updateDensityGrid();
+ updateAutomation(dt*interactionMultiplier(now));
 
  if(!paused){
  simTime+=dt*params.speed*.25;boost*=Math.exp(-dt*.5);updateField(dt);
