@@ -19,6 +19,10 @@
 <div class="cover" aria-hidden="true"></div>
 <div class="info"><div><h2>Flow 001</h2><p>作品を開く / Explore artwork</p></div><span class="arrow" aria-hidden="true">↗</span></div>
 </a>
+<a class="work" href="./name-card/" aria-label="Name Cardを開く">
+<div class="cover" aria-hidden="true" style="filter:hue-rotate(160deg)"></div>
+<div class="info"><div><h2>Name Card</h2><p>作品を開く / Explore artwork</p></div><span class="arrow" aria-hidden="true">↗</span></div>
+</a>
 </section>
 <p id="list-status" role="status" style="color:#a89ab9;font-size:13px"></p>
 <section aria-label="動作テスト" style="margin-top:36px">
@@ -30,18 +34,18 @@
 <footer><p>Created by gamacho with GPT-6 Astra · JavaScript + WebGL</p><p>カードのビジュアルは作品のイメージです。</p></footer>
 </main>
 <script>
-// flow-数字/index.html を検出。API通信は1回、5分間キャッシュします。
+// flow-数字/index.html と name-card/index.html を検出。API通信は1回、5分間キャッシュします。
 const gallery=document.querySelector('.grid');
 const statusLine=document.getElementById('list-status');
-const cacheKey='gamaccho/granular-flow/gallery-v2';
-const validName=name=>/^flow-\d+$/.test(name);
+const cacheKey='gamaccho/granular-flow/gallery-v3';
+const validName=name=>/^(?:flow-\d+|name-card)$/.test(name);
 function displayWorks(names){
  const fragment=document.createDocumentFragment();
  for(const name of names){
- const title='Flow '+name.slice(5);
+ const title=name==='name-card'?'Name Card':'Flow '+name.slice(5);
  const card=document.createElement('a');card.className='work';card.href='./'+name+'/';card.setAttribute('aria-label',title+'を開く');
  const cover=document.createElement('div');cover.className='cover';cover.setAttribute('aria-hidden','true');
- cover.style.filter='hue-rotate('+((Number(name.slice(5))-1)*37%360)+'deg)';
+ cover.style.filter='hue-rotate('+(name==='name-card'?160:(Number(name.slice(5))-1)*37%360)+'deg)';
  const info=document.createElement('div');info.className='info';
  const labels=document.createElement('div'),heading=document.createElement('h2'),description=document.createElement('p'),arrow=document.createElement('span');
  heading.textContent=title;description.textContent='作品を開く / Explore artwork';arrow.className='arrow';arrow.textContent='↗';arrow.setAttribute('aria-hidden','true');
@@ -63,7 +67,7 @@ async function loadWorks(){
  if(!response.ok)throw Error('作品一覧を取得できませんでした。');
  const data=await response.json();
  if(!Array.isArray(data.tree)||data.truncated)throw Error('作品一覧が不完全です。');
- const names=[...new Set(data.tree.filter(item=>item.type==='blob'&&/^flow-\d+\/index\.html$/.test(item.path)).map(item=>item.path.split('/')[0]))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+ const names=[...new Set(data.tree.filter(item=>item.type==='blob'&&/^(?:flow-\d+|name-card)\/index\.html$/.test(item.path)).map(item=>item.path.split('/')[0]))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
  displayWorks(names);
  try{localStorage.setItem(cacheKey,JSON.stringify({time:Date.now(),names}));}catch{}
  }catch{statusLine.textContent='最新の一覧を取得できませんでした。時間をおいて再読み込みしてください。';}
