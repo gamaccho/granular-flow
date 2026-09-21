@@ -403,13 +403,15 @@ function cullHiddenParticles(){
  return kept;
 }
 // Opt-in diagnostics: no overlay or timings in ordinary viewing mode.
+// Update this release identifier whenever the published artwork changes.
+const ART_VERSION='2026.09.21-r1';
 const meterEnabled=new URLSearchParams(window.location?.search||'').get('debug')==='1';
 const meter=meterEnabled?document.createElement('pre'):null;
 const meterState={frames:0,elapsed:0,lastUpdate:0,cpu:0,cull:0,submitted:0,culling:false,previous:null,slow:null};
 if(meter){
  meter.setAttribute('aria-label','描画診断メーター');
  meter.style.cssText='position:fixed;left:8px;top:max(8px,env(safe-area-inset-top));z-index:10;margin:0;padding:10px;border-radius:8px;background:#080b12df;color:#b6fff1;font:11px/1.5 ui-monospace,monospace;pointer-events:none;max-width:calc(100vw - 16px);white-space:pre-wrap';
- meter.textContent='計測を開始しています…';document.body.append(meter);
+ meter.textContent=`Flow 9999 | v${ART_VERSION}\n計測を開始しています…`;document.body.append(meter);
 }
 function updateMeter(now,frameMs){
  if(!meter)return;
@@ -422,7 +424,8 @@ function updateMeter(now,frameMs){
  const fps=meterState.elapsed?meterState.frames*1000/meterState.elapsed:0;
  const avg=meterState.frames?meterState.elapsed/meterState.frames:0;
  const slow=meterState.slow;
- meter.textContent=`FPS ${fps.toFixed(1)} | 平均間隔 ${avg.toFixed(1)} ms
+ meter.textContent=`Flow 9999 | v${ART_VERSION}
+FPS ${fps.toFixed(1)} | 平均間隔 ${avg.toFixed(1)} ms
 直近間隔 ${frameMs.toFixed(1)} ms | JS処理 ${meterState.cpu.toFixed(1)} ms
 隠れ判定 ${meterState.culling?'ON':'OFF'} / ${meterState.cull.toFixed(1)} ms
 速度 ${params.speed.toFixed(2)} | 渦 ${params.fold.toFixed(2)}
