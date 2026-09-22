@@ -12,12 +12,16 @@
 </head>
 <body>
 <main>
-<header><div class="eyebrow">INTERACTIVE ART SERIES / GAMACHO</div><h1>Granular Flow</h1><p class="intro">触れると流れが生まれる、粒のアート。<br>作品を開いて、マウスや指でドラッグしてください。</p></header>
+<header><div class="eyebrow">INTERACTIVE ART SERIES / GAMACHO</div><h1>Granular Flow</h1><p class="intro">触れると流れが生まれる、粒と炎のアート。<br>作品を開いて、マウスや指でドラッグしてください。</p></header>
 <section class="grid" aria-label="作品一覧">
-<!-- 通信できない場合も最初の作品へのリンクを残します。 -->
+<!-- 通信できない場合も公開済み作品へのリンクを残します。 -->
 <a class="work" href="./flow-001/" aria-label="Flow 001を開く">
 <div class="cover" aria-hidden="true"></div>
 <div class="info"><div><h2>Flow 001</h2><p>作品を開く / Explore artwork</p></div><span class="arrow" aria-hidden="true">↗</span></div>
+</a>
+<a class="work" href="./ignition001/" aria-label="Ignition 001を開く">
+<div class="cover" aria-hidden="true" style="filter:hue-rotate(240deg)"></div>
+<div class="info"><div><h2>Ignition 001</h2><p>作品を開く / Explore artwork</p></div><span class="arrow" aria-hidden="true">↗</span></div>
 </a>
 <a class="work" href="./name-card/" aria-label="Name Cardを開く">
 <div class="cover" aria-hidden="true" style="filter:hue-rotate(160deg)"></div>
@@ -34,18 +38,18 @@
 <footer><p>Created by gamacho with GPT-6 Astra · JavaScript + WebGL</p><p>カードのビジュアルは作品のイメージです。</p></footer>
 </main>
 <script>
-// flow-数字/index.html と name-card/index.html を検出。API通信は1回、5分間キャッシュします。
+// flow-数字/index.html、ignition数字/index.html と name-card/index.html を検出。API通信は1回、5分間キャッシュします。
 const gallery=document.querySelector('.grid');
 const statusLine=document.getElementById('list-status');
-const cacheKey='gamaccho/granular-flow/gallery-v3';
-const validName=name=>/^(?:flow-\d+|name-card)$/.test(name);
+const cacheKey='gamaccho/granular-flow/gallery-v4';
+const validName=name=>/^(?:flow-\d+|ignition\d+|name-card)$/.test(name);
 function displayWorks(names){
  const fragment=document.createDocumentFragment();
  for(const name of names){
- const title=name==='name-card'?'Name Card':'Flow '+name.slice(5);
+ const title=name==='name-card'?'Name Card':name.startsWith('ignition')?'Ignition '+name.slice(8):'Flow '+name.slice(5);
  const card=document.createElement('a');card.className='work';card.href='./'+name+'/';card.setAttribute('aria-label',title+'を開く');
  const cover=document.createElement('div');cover.className='cover';cover.setAttribute('aria-hidden','true');
- cover.style.filter='hue-rotate('+(name==='name-card'?160:(Number(name.slice(5))-1)*37%360)+'deg)';
+ cover.style.filter='hue-rotate('+(name==='name-card'?160:name.startsWith('ignition')?240:(Number(name.slice(5))-1)*37%360)+'deg)';
  const info=document.createElement('div');info.className='info';
  const labels=document.createElement('div'),heading=document.createElement('h2'),description=document.createElement('p'),arrow=document.createElement('span');
  heading.textContent=title;description.textContent='作品を開く / Explore artwork';arrow.className='arrow';arrow.textContent='↗';arrow.setAttribute('aria-hidden','true');
@@ -67,7 +71,7 @@ async function loadWorks(){
  if(!response.ok)throw Error('作品一覧を取得できませんでした。');
  const data=await response.json();
  if(!Array.isArray(data.tree)||data.truncated)throw Error('作品一覧が不完全です。');
- const names=[...new Set(data.tree.filter(item=>item.type==='blob'&&/^(?:flow-\d+|name-card)\/index\.html$/.test(item.path)).map(item=>item.path.split('/')[0]))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
+ const names=[...new Set(data.tree.filter(item=>item.type==='blob'&&/^(?:flow-\d+|ignition\d+|name-card)\/index\.html$/.test(item.path)).map(item=>item.path.split('/')[0]))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
  displayWorks(names);
  try{localStorage.setItem(cacheKey,JSON.stringify({time:Date.now(),names}));}catch{}
  }catch{statusLine.textContent='最新の一覧を取得できませんでした。時間をおいて再読み込みしてください。';}
