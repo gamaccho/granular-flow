@@ -1,3 +1,6 @@
+---
+layout: null
+---
 <!doctype html>
 <html lang="ja">
 <head>
@@ -14,21 +17,33 @@
 <main>
 <header><div class="eyebrow">INTERACTIVE ART SERIES / GAMACHO</div><h1>Granular Flow</h1><p class="intro">触れると流れが生まれる、粒と炎のアート。<br>作品を開いて、マウスや指でドラッグしてください。</p></header>
 <section class="grid" aria-label="作品一覧">
-<!-- 通信できない場合も公開済み作品へのリンクを残します。 -->
-<a class="work" href="./flow-001/" aria-label="Flow 001を開く">
-<div class="cover" aria-hidden="true"></div>
-<div class="info"><div><h2>Flow 001</h2><p>作品を開く / Explore artwork</p></div><span class="arrow" aria-hidden="true">↗</span></div>
+{% assign candidates = site.static_files | concat: site.pages | sort: "path" %}
+{% assign excluded = "assets,scripts,docs,examples,node_modules,vendor" | split: "," %}
+{% for file in candidates %}
+  {% assign clean_path = file.path | prepend: "/" | replace: "//", "/" | remove_first: "/" %}
+  {% assign parts = clean_path | split: "/" %}
+  {% assign folder = parts | first %}
+  {% assign filename = parts | last %}
+  {% if parts.size == 2 and filename == "index.html" %}
+    {% unless excluded contains folder %}
+      {% assign prefix = folder | slice: 0, 5 %}
+      {% assign ignition_prefix = folder | slice: 0, 8 %}
+      {% assign title = file.title | default: folder %}
+      {% if prefix == "flow-" %}
+        {% assign title = folder | remove_first: "flow-" | prepend: "Flow " %}
+      {% elsif ignition_prefix == "ignition" %}
+        {% assign title = folder | remove_first: "ignition" | prepend: "Ignition " %}
+      {% elsif folder == "name-card" %}
+        {% assign title = "Name Card" %}
+      {% endif %}
+<a class="work" href="./{{ folder | uri_escape }}/" data-folder="{{ folder | escape }}" aria-label="{{ title | escape }}を開く">
+<div class="cover" aria-hidden="true" style="filter:hue-rotate({% cycle 0, 100, 240, 160, 300 %}deg)"></div>
+<div class="info"><div><h2>{{ title | escape }}</h2><p>作品を開く / Explore artwork</p></div><span class="arrow" aria-hidden="true">↗</span></div>
 </a>
-<a class="work" href="./ignition001/" aria-label="Ignition 001を開く">
-<div class="cover" aria-hidden="true" style="filter:hue-rotate(240deg)"></div>
-<div class="info"><div><h2>Ignition 001</h2><p>作品を開く / Explore artwork</p></div><span class="arrow" aria-hidden="true">↗</span></div>
-</a>
-<a class="work" href="./name-card/" aria-label="Name Cardを開く">
-<div class="cover" aria-hidden="true" style="filter:hue-rotate(160deg)"></div>
-<div class="info"><div><h2>Name Card</h2><p>作品を開く / Explore artwork</p></div><span class="arrow" aria-hidden="true">↗</span></div>
-</a>
+    {% endunless %}
+  {% endif %}
+{% endfor %}
 </section>
-<p id="list-status" role="status" style="color:#a89ab9;font-size:13px"></p>
 <section aria-label="動作テスト" style="margin-top:36px">
 <h2 style="font-size:16px;font-weight:500;color:#c1b8cf">動作テスト</h2>
 <a class="work" href="./flow-9999/?debug=1">
@@ -38,46 +53,27 @@
 <footer><p>Created by gamacho with GPT-6 Astra · JavaScript + WebGL</p><p>カードのビジュアルは作品のイメージです。</p></footer>
 </main>
 <script>
-// flow-数字/index.html、ignition数字/index.html と name-card/index.html を検出。API通信は1回、5分間キャッシュします。
-const gallery=document.querySelector('.grid');
-const statusLine=document.getElementById('list-status');
-const cacheKey='gamaccho/granular-flow/gallery-v4';
-const validName=name=>/^(?:flow-\d+|ignition\d+|name-card)$/.test(name);
-function displayWorks(names){
- const fragment=document.createDocumentFragment();
- for(const name of names){
- const title=name==='name-card'?'Name Card':name.startsWith('ignition')?'Ignition '+name.slice(8):'Flow '+name.slice(5);
- const card=document.createElement('a');card.className='work';card.href='./'+name+'/';card.setAttribute('aria-label',title+'を開く');
- const cover=document.createElement('div');cover.className='cover';cover.setAttribute('aria-hidden','true');
- cover.style.filter='hue-rotate('+(name==='name-card'?160:name.startsWith('ignition')?240:(Number(name.slice(5))-1)*37%360)+'deg)';
- const info=document.createElement('div');info.className='info';
- const labels=document.createElement('div'),heading=document.createElement('h2'),description=document.createElement('p'),arrow=document.createElement('span');
- heading.textContent=title;description.textContent='作品を開く / Explore artwork';arrow.className='arrow';arrow.textContent='↗';arrow.setAttribute('aria-hidden','true');
- labels.append(heading,description);info.append(labels,arrow);card.append(cover,info);fragment.append(card);
- }
- gallery.replaceChildren(fragment);
- statusLine.textContent=names.length?'':'作品は準備中です。';
-}
-async function loadWorks(){
- let cached;
- try{cached=JSON.parse(localStorage.getItem(cacheKey));}catch{}
- if(cached&&Array.isArray(cached.names)&&cached.names.every(n=>typeof n==='string'&&validName(n))){
- displayWorks(cached.names);
- if(Date.now()-cached.time<300000)return;
- }
- const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
+// Cards are generated during publication, independently of browser API calls.
+// Unknown series use their page title when available; the folder link always works.
+async function enrichTitle(card){
+ const folder=card.dataset.folder;
+ if(/^(?:flow-\d+|ignition\d+|name-card)$/.test(folder))return;
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
  try{
- const response=await fetch('https://api.github.com/repos/gamaccho/granular-flow/git/trees/main?recursive=1',{signal:controller.signal,headers:{Accept:'application/vnd.github+json'}});
- if(!response.ok)throw Error('作品一覧を取得できませんでした。');
- const data=await response.json();
- if(!Array.isArray(data.tree)||data.truncated)throw Error('作品一覧が不完全です。');
- const names=[...new Set(data.tree.filter(item=>item.type==='blob'&&/^(?:flow-\d+|ignition\d+|name-card)\/index\.html$/.test(item.path)).map(item=>item.path.split('/')[0]))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
- displayWorks(names);
- try{localStorage.setItem(cacheKey,JSON.stringify({time:Date.now(),names}));}catch{}
- }catch{statusLine.textContent='最新の一覧を取得できませんでした。時間をおいて再読み込みしてください。';}
- finally{clearTimeout(timer);}
+  const response=await fetch(card.href,{signal:controller.signal});
+  if(!response.ok)return;
+  const html=await response.text();
+  const match=html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i);
+  if(!match)return;
+  const decoder=document.createElement('textarea');decoder.innerHTML=match[1];
+  const title=decoder.value.trim();
+  if(title){card.querySelector('h2').textContent=title;card.setAttribute('aria-label',title+'を開く');}
+ }catch{}finally{clearTimeout(timer);}
 }
-loadWorks();
+(async()=>{
+ const cards=[...document.querySelectorAll('.work[data-folder]')];
+ for(let i=0;i<cards.length;i+=3)await Promise.all(cards.slice(i,i+3).map(enrichTitle));
+})();
 </script>
 </body>
 </html>
