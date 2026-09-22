@@ -44,11 +44,11 @@ void main(){
  vec3 hue=f.rgb/max(max(f.r,f.g),max(f.b,.001));
  vec3 color=pow(hue,vec3(1.05))*burn*(1.5+.5*n);
  vec2 px=1./viewport;vec3 halo=vec3(0);
- for(int i=0;i<8;i++){float a=float(i)*.785398;vec2 off=vec2(cos(a),sin(a))*px*5.;halo+=texture2D(field,uv+off).rgb*.028;}
+ for(int i=0;i<8;i++){float a=float(i)*.785398;vec2 off=vec2(cos(a),sin(a))*px*8.;halo+=texture2D(field,uv+off).rgb*.040;halo+=texture2D(field,uv+off*2.).rgb*.018;}
  color+=halo;
  // A small luminous ignition point; white heat opens behind it along the stroke.
  vec2 head=(uv-tip)*viewport;float oldRadius=min(viewport.x,viewport.y)*.042;
- float radius=oldRadius*.10;
+ float radius=oldRadius*.15;
  float core=exp(-dot(head,head)/(radius*radius));
  float glow=exp(-dot(head,head)/(radius*radius*4.));
  color+=vec3(5.8,5.9,6.)*core*ignition+vec3(.22,.25,.30)*glow*ignition;
@@ -67,8 +67,9 @@ void main(){
   float flicker=noise(vec2(age*13.-time*5.,dot(delta,normal)/max(r,1.)*2.+time*2.));
   float crosswise=dot(delta,normal)+(flicker-.5)*r*.62*spread;
   float endDistance=dot(delta,tangent)-along*len;
-  float shape=exp(-(crosswise*crosswise+endDistance*endDistance)/(r*r));
-  float fray=mix(1.,smoothstep(.20,.66,flicker),smoothstep(.12,.85,age)*.95);
+  float distance2=crosswise*crosswise+endDistance*endDistance;
+  float shape=.70*exp(-distance2/(r*r*1.35))+.30*exp(-distance2/(r*r*3.2));
+  float fray=mix(1.,smoothstep(.20,.66,flicker),smoothstep(.12,.85,age)*.72);
   float heat=mix(newerHeat,hotTrail[i].z,along)*(1.-smoothstep(.20,1.,age));
   float moving=smoothstep(.25,2.,len);
   whiteFire=max(whiteFire,shape*fray*heat*moving);
@@ -155,13 +156,15 @@ function trailMesh(){
   // Roll-up expands a parcel; thinning and extinction then separate it from its neighbors.
   const swell=Math.sin(Math.PI*Math.min(1,age/.72));
   const pulse=.78+.22*Math.sin(p.born*21.+age*8.);
-  const baseRadius=base*(.018+.030*Math.max(0,swell))*p.size*pulse;
-  const radius=baseRadius*(1+2*Math.max(0,swell));
+  const fast=Math.min(1,p.speed/(base*2.4));
+  const young=Math.max(0,1-age/.42);
+  const baseRadius=base*(.018+.030*Math.max(0,swell))*p.size*pulse*(1+.85*fast*young);
+  const radius=baseRadius*(1+2*Math.max(0,swell))*(1+.38*Math.sin(age*Math.PI));
   const length=baseRadius*(1.30+age*.7);
   const release=Math.min(1,t/.28);
   const loosen=release*release*(3-2*release);
   const backward=t*(base*.085+p.speed*.13)*(.62+.38*loosen);
-  const side=base*.031*Math.sin(p.seed*.7+age*6.)*Math.sin(age*Math.PI)*(.65+.35*loosen);
+  const side=base*.050*Math.sin(p.seed*.7+age*6.)*Math.sin(age*Math.PI)*(.40+.60*loosen);
   const ash=Math.max(0,(age-.83)/.17);
   const cx=p.x-p.dx*backward-p.dy*side,cy=p.y-p.dy*backward+p.dx*side+ash*ash*base*.020;
   const fade=Math.pow(Math.max(0,1-age),.65);
