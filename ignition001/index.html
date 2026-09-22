@@ -46,17 +46,34 @@ void main(){
  vec2 px=1./viewport;vec3 halo=vec3(0);
  for(int i=0;i<8;i++){float a=float(i)*.785398;vec2 off=vec2(cos(a),sin(a))*px*5.;halo+=texture2D(field,uv+off).rgb*.028;}
  color+=halo;
- // Radial white core plus a wider halo: it extends ahead of the motion, too.
- vec2 head=(uv-tip)*viewport;float radius=min(viewport.x,viewport.y)*.042;
+ // A small luminous ignition point; white heat opens behind it along the stroke.
+ vec2 head=(uv-tip)*viewport;float oldRadius=min(viewport.x,viewport.y)*.042;
+ float radius=oldRadius*.10;
  float core=exp(-dot(head,head)/(radius*radius));
- float glow=exp(-dot(head,head)/(radius*radius*7.));
- color+=vec3(4.2,4.3,4.5)*core*ignition+vec3(.42,.48,.57)*glow*ignition;
+ float glow=exp(-dot(head,head)/(radius*radius*4.));
+ color+=vec3(5.8,5.9,6.)*core*ignition+vec3(.22,.25,.30)*glow*ignition;
+ vec2 newer=tip;float newerHeat=ignition;float whiteFire=0.;
  for(int i=0;i<8;i++){
-  vec2 delta=(uv-hotTrail[i].xy)*viewport;
-  float r=radius*.70;
-  float ember=exp(-dot(delta,delta)/(r*r));
-  color+=vec3(.56,.59,.64)*ember*hotTrail[i].z;
+  vec2 older=hotTrail[i].xy;
+  vec2 segment=(older-newer)*viewport;
+  float len=length(segment);
+  vec2 tangent=segment/max(len,.001),normal=vec2(-tangent.y,tangent.x);
+  vec2 delta=(uv-newer)*viewport;
+  float along=clamp(dot(delta,tangent)/max(len,.001),0.,1.);
+  float age=(float(i)+along)/8.;
+  float spread=smoothstep(0.,.32,age)*(1.-smoothstep(.48,1.,age));
+  float r=oldRadius*(.10+.70*spread);
+  float flicker=noise(vec2(age*13.-time*5.,dot(delta,normal)/max(r,1.)*2.+time*2.));
+  float crosswise=dot(delta,normal)+(flicker-.5)*r*.62*spread;
+  float endDistance=dot(delta,tangent)-along*len;
+  float shape=exp(-(crosswise*crosswise+endDistance*endDistance)/(r*r));
+  float fray=mix(1.,smoothstep(.20,.66,flicker),smoothstep(.25,.95,age)*.85);
+  float heat=mix(newerHeat,hotTrail[i].z,along);
+  float moving=smoothstep(.25,2.,len);
+  whiteFire=max(whiteFire,shape*fray*heat*moving);
+  newer=older;newerHeat=hotTrail[i].z;
  }
+ color+=vec3(4.2,4.3,4.5)*whiteFire;
  gl_FragColor=vec4(1.-exp(-color*1.65),1.);
 }`;
 function shader(type,src){const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(sh));return sh;}
@@ -127,7 +144,7 @@ function updateTrail(dt){
     born:clock-dt*(1-f),dx:direction[0],dy:direction[1],speed,seed,life:LIFE*(.75+.25*(.5+.5*Math.sin(seed*1.7))),size:.80+.40*(.5+.5*Math.cos(seed)),tint:clock*.09,stroke});
   }emitSparks(previous,point,dt);
  }else{headLight*=Math.exp(-dt*18);emitCarry=0;}
- headHistory=headHistory.filter(p=>clock-p.time<.18);
+ headHistory=headHistory.filter(p=>clock-p.time<.28);
  nodes=nodes.filter(p=>clock-p.born<p.life).slice(-360);
 }
 function trailMesh(){
@@ -162,12 +179,12 @@ function trailMesh(){
 function updateHotTrail(){
  hotTrailData.fill(0);
  for(let i=0;i<8;i++){
-  const sampleTime=clock-(i+1)*.020;
+  const sampleTime=clock-(i+1)*.030;
   let a=null,b=null;
   for(const p of headHistory){if(p.time<=sampleTime)a=p;else{b=p;break;}}
-  if(!a)continue;b=b||a;
+  if(!a){hotTrailData.set([i?hotTrailData[(i-1)*3]:point[0],i?hotTrailData[(i-1)*3+1]:point[1],0],i*3);continue;}b=b||a;
   const f=b.time>a.time?(sampleTime-a.time)/(b.time-a.time):0;
-  hotTrailData.set([a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,Math.exp(-(clock-sampleTime)*17)*Math.exp(-Math.max(0,sampleTime-b.time)*20)],i*3);
+  hotTrailData.set([a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,Math.exp(-(clock-sampleTime)*7)*Math.exp(-Math.max(0,sampleTime-b.time)*20)],i*3);
  }
 }
 // Randomness is sampled once per stroke, never once per frame.
@@ -238,3 +255,4 @@ function frame(now){if(gl.isContextLost())return;const dt=last?Math.min((now-las
 }
 
 </script></body></html>
+
