@@ -146,7 +146,7 @@ function updateTrail(dt){
     born:clock-dt*(1-f),dx:direction[0],dy:direction[1],speed,seed,life:LIFE*(.75+.25*(.5+.5*Math.sin(seed*1.7))),size:.80+.40*(.5+.5*Math.cos(seed)),tint:clock*.09,stroke});
   }emitSparks(previous,point,dt);
  }else{headLight*=Math.exp(-dt*18);emitCarry=0;}
- headHistory=headHistory.filter(p=>clock-p.time<.16);
+ headHistory=headHistory.filter(p=>clock-p.time<.112);
  nodes=nodes.filter(p=>clock-p.born<p.life).slice(-360);
 }
 function trailMesh(){
@@ -183,7 +183,7 @@ function trailMesh(){
 function updateHotTrail(){
  hotTrailData.fill(0);
  for(let i=0;i<8;i++){
-  const sampleTime=clock-(i+1)*.016;
+  const sampleTime=clock-(i+1)*.0112;
   let a=null,b=null;
   for(const p of headHistory){if(p.time<=sampleTime)a=p;else{b=p;break;}}
   if(!a){hotTrailData.set([i?hotTrailData[(i-1)*3]:point[0],i?hotTrailData[(i-1)*3+1]:point[1],0],i*3);continue;}b=b||a;
