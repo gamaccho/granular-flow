@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#030305"><title>IGNITION — ONCE IN THE FLOW</title><meta name="description" content="暗闇に触れると、白い炎が色彩を帯びて流れ出す。"><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23030305'/%3E%3Cpath d='M18 4Q5 17 11 25Q24 32 24 18Q18 23 18 4' fill='%237cdfff'/%3E%3C/svg%3E"><style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#030305;color:#eee;font-family:Arial,'Noto Sans JP',sans-serif}canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}#sparks{position:fixed;inset:0;pointer-events:none}header{position:fixed;left:28px;top:max(28px,env(safe-area-inset-top));pointer-events:none}header p{font-size:12px;letter-spacing:.24em;color:#9a9aa5;margin:0 0 10px}h1{font-size:24px;letter-spacing:.3em;font-weight:400;margin:0}footer{position:fixed;bottom:max(24px,env(safe-area-inset-bottom));left:28px;right:28px;display:flex;align-items:center;justify-content:space-between;gap:16px;pointer-events:none}#hint{font-size:14px;color:#b6b6c3;line-height:1.8;transition:opacity 1s}nav{display:flex;gap:8px;pointer-events:auto}button{background:#101015b3;border:1px solid #ffffff26;border-radius:24px;color:#d4d4df;padding:12px 18px;min-height:44px;font:14px inherit;cursor:pointer;backdrop-filter:blur(12px)}button:hover,button:focus-visible{border-color:#8edfff;color:white;outline:none}#error{position:fixed;top:40%;left:10%;right:10%;text-align:center;line-height:1.8} @media(max-width:600px){header{left:20px;top:max(24px,env(safe-area-inset-top))}h1{font-size:21px}footer{left:20px;right:20px;align-items:flex-end}#hint{max-width:160px}button{padding:11px 14px}}
+</style></head><body><canvas id="fire" tabindex="0" aria-label="炎を描くキャンバス。指やマウスでなぞってください。操作をやめると2秒後に自動デモを再開します。"></canvas><canvas id="sparks" aria-hidden="true"></canvas><header><p>ONCE IN THE FLOW / IGNITION 001</p><h1>IGNITION</h1></header><footer><span id="hint">触れて、なぞる。<br>色彩が、燃え残る。</span><nav style="display:none" aria-hidden="true"><button id="demo" aria-pressed="false">デモ</button><button id="clear">消す</button></nav></footer><p id="error" hidden></p>
+<script>
+'use strict';
+const canvas=document.querySelector('#fire'),hint=document.querySelector('#hint'),demoButton=document.querySelector('#demo');
+const gl=canvas.getContext('webgl',{alpha:false,antialias:true,depth:false,preserveDrawingBuffer:false});
+function fail(message){const e=document.querySelector('#error');e.hidden=false;e.textContent=message;}
+if(!gl)fail('この環境では炎を表示できません。WebGL対応のブラウザーでお試しください。');else try{start();}catch(e){console.error(e);fail('炎の描画を開始できませんでした。');}
+function start(){
+// Independent moving flame parcels accumulate into a screen-space density field.
+// No connected ribbon, and no geometric cut at the fingertip.
+const vertex=`attribute vec2 position;attribute vec2 flameUV;attribute vec4 state;
+uniform vec2 viewport;varying vec2 vUV;varying vec4 vState;
+void main(){vUV=flameUV;vState=state;gl_Position=vec4(position/viewport*2.-1.,0.,1.);}`;
+const fragment=`precision highp float;varying vec2 vUV;varying vec4 vState;uniform float time;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1)),f.x),f.y);}
+void main(){
+ vec2 q=vUV;float age=vState.x,seed=vState.z;
+ float n=noise(q*2.8+vec2(seed,time*2.1));
+ q.x+=(n-.5)*.58; q.y+=sin(q.x*3.+seed+time*6.)*.11;
+ float shape=exp(-dot(q,q)*3.8);
+ float fray=noise(q*3.4+vec2(seed,-time*3.));
+ shape*=mix(1.,smoothstep(.12,.61,fray),smoothstep(.22,.75,age)*.85);
+ float density=shape*vState.w;
+ vec3 hue=.5+.5*cos(6.283185*(vState.y+vec3(0.,.33,.67)));
+ hue=pow(hue,vec3(1.2));
+ gl_FragColor=vec4(hue*density,density);
+}`;
+const screenVertex=`attribute vec2 position;varying vec2 uv;void main(){uv=position*.5+.5;gl_Position=vec4(position,0.,1.);}`;
+const screenFragment=`precision highp float;varying vec2 uv;uniform sampler2D field;uniform vec2 viewport;uniform vec2 tip;uniform vec3 hotTrail[8];uniform float ignition;uniform float time;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+vec2(1)),f.x),f.y);}
+void main(){
+ vec2 p=uv*viewport/min(viewport.x,viewport.y);
+ float n=noise(p*24.+vec2(time*.7,-time*2.3));
+ vec2 warp=vec2(noise(p*19.+time*.6),noise(p*21.-time*.8))-.5;
+ vec4 f=texture2D(field,uv+warp*.004);
+ float density=f.a;
+ // Density crossings make necks disappear completely, leaving detached tongues.
+ float burn=smoothstep(.075,.25,density)*pow(density,.72);
+ vec3 hue=f.rgb/max(max(f.r,f.g),max(f.b,.001));
+ vec3 color=pow(hue,vec3(1.05))*burn*(1.5+.5*n);
+ vec2 px=1./viewport;vec3 halo=vec3(0);
+ for(int i=0;i<8;i++){float a=float(i)*.785398;vec2 off=vec2(cos(a),sin(a))*px*5.;halo+=texture2D(field,uv+off).rgb*.028;}
+ color+=halo;
+ // Radial white core plus a wider halo: it extends ahead of the motion, too.
+ vec2 head=(uv-tip)*viewport;float radius=min(viewport.x,viewport.y)*.042;
+ float core=exp(-dot(head,head)/(radius*radius));
+ float glow=exp(-dot(head,head)/(radius*radius*7.));
+ color+=vec3(4.2,4.3,4.5)*core*ignition+vec3(.42,.48,.57)*glow*ignition;
+ for(int i=0;i<8;i++){
+  vec2 delta=(uv-hotTrail[i].xy)*viewport;
+  float r=radius*.70;
+  float ember=exp(-dot(delta,delta)/(r*r));
+  color+=vec3(.56,.59,.64)*ember*hotTrail[i].z;
+ }
+ gl_FragColor=vec4(1.-exp(-color*1.65),1.);
+}`;
+function shader(type,src){const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(sh));return sh;}
+function makeProgram(v,f){const p=gl.createProgram();gl.attachShader(p,shader(gl.VERTEX_SHADER,v));gl.attachShader(p,shader(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));return p;}
+const program=makeProgram(vertex,fragment),screen=makeProgram(screenVertex,screenFragment);
+const buffer=gl.createBuffer(),quad=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+const attributes=['position','flameUV','state'].map(n=>gl.getAttribLocation(program,n));
+const viewportUniform=gl.getUniformLocation(program,'viewport'),timeUniform=gl.getUniformLocation(program,'time');
+const screenUniform=Object.fromEntries(['field','viewport','tip','ignition','time'].map(n=>[n,gl.getUniformLocation(screen,n)]));
+screenUniform.hotTrail=gl.getUniformLocation(screen,'hotTrail[0]');
+const screenAttribute=gl.getAttribLocation(screen,'position');let fieldTexture=null,fieldBuffer=null,fieldW=1,fieldH=1;
+const sparkCanvas=document.querySelector('#sparks'),sparkCtx=sparkCanvas.getContext('2d');
+let sparkW=1,sparkH=1,sparks=[],sparkCarry=0;
+let width=1,height=1,clock=0,last=0,active=false,demo=false,started=0,pointerId=null,demoDown=false,demoSegment=-1;
+let point=[.5,.5],previous=point.slice(),direction=[1,0],nodes=[],stroke=0,emitCarry=0,headLight=0,serial=0,headHistory=[];
+const hotTrailData=new Float32Array(24);
+const LIFE=1.55;
+let idleAt=performance.now()+2000;
+function emitSparks(from,to,elapsed){
+ const dx=(to[0]-from[0])*sparkW,dy=-(to[1]-from[1])*sparkH;
+ const distance=Math.hypot(dx,dy),speed=distance/Math.max(elapsed,.001),threshold=Math.min(sparkW,sparkH)*.95;
+ if(speed<=threshold||distance<.3){sparkCarry=0;return;}
+ sparkCarry+=distance/5*Math.min(2,(speed-threshold)/threshold);
+ const count=Math.min(40,Math.floor(sparkCarry));sparkCarry-=Math.floor(sparkCarry);
+ for(let i=0;i<count&&sparks.length<360;i++){
+  const f=Math.random(),life=.25+Math.random()*.5;
+  sparks.push({x:(from[0]+(to[0]-from[0])*f)*sparkW,y:(1-from[1]-(to[1]-from[1])*f)*sparkH,
+  vx:dx/elapsed*.16+(Math.random()-.5)*190,vy:dy/elapsed*.16-35-Math.random()*115,life,r:.45+Math.random()*.75});
+ }
+}
+function paintSparks(dt){
+ if(!sparkCtx)return;sparkCtx.clearRect(0,0,sparkW,sparkH);sparks=sparks.filter(p=>p.life>dt);
+ for(const p of sparks){p.life-=dt;p.vx*=Math.exp(-dt*2.2);p.vy-=dt*22;p.x+=p.vx*dt;p.y+=p.vy*dt;sparkCtx.globalAlpha=Math.min(1,p.life/.16);sparkCtx.fillStyle='#fff';sparkCtx.beginPath();sparkCtx.arc(p.x,p.y,p.r,0,Math.PI*2);sparkCtx.fill();}sparkCtx.globalAlpha=1;
+}
+function resize(){const r=canvas.getBoundingClientRect();width=sparkW=r.width;height=sparkH=r.height;const dpr=Math.min(devicePixelRatio,1.5);canvas.width=sparkCanvas.width=Math.round(width*dpr);canvas.height=sparkCanvas.height=Math.round(height*dpr);if(sparkCtx)sparkCtx.setTransform(dpr,0,0,dpr,0,0);nodes=[];sparks=[];
+ const scale=Math.min(1,720/Math.max(width,height));fieldW=Math.round(width*scale);fieldH=Math.round(height*scale);
+ if(fieldTexture)gl.deleteTexture(fieldTexture);if(fieldBuffer)gl.deleteFramebuffer(fieldBuffer);
+ fieldTexture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,fieldTexture);
+ for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]])gl.texParameteri(gl.TEXTURE_2D,k,v);
+ gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,fieldW,fieldH,0,gl.RGBA,gl.UNSIGNED_BYTE,null);fieldBuffer=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,fieldBuffer);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,fieldTexture,0);if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw Error('Flame buffer');
+}
+function position(e){const r=canvas.getBoundingClientRect();return [(e.clientX-r.left)/r.width,1-(e.clientY-r.top)/r.height];}
+function setDemo(value){idleAt=value?Infinity:performance.now()+2000;headHistory=[];demoDown=false;demoSegment=-1;demoRun=null;demoKey=0;lastDemoKind="";demo=value;started=clock;stroke++;demoButton.setAttribute('aria-pressed',String(value));demoButton.textContent=value?'デモ停止':'デモ';previous=point.slice();}
+canvas.addEventListener('pointerdown',e=>{if(pointerId!==null)return;e.preventDefault();setDemo(false);idleAt=Infinity;pointerId=e.pointerId;canvas.setPointerCapture(pointerId);point=position(e);previous=point.slice();active=true;hint.style.opacity='0';});
+canvas.addEventListener('pointermove',e=>{if(e.pointerId===pointerId)point=position(e);});
+function release(e){
+ if(e.pointerId!==pointerId)return;
+ if(e.type==='pointerup')point=position(e);
+ active=false;pointerId=null;idleAt=performance.now()+2000;
+}
+canvas.addEventListener('pointerup',release);canvas.addEventListener('pointercancel',release);canvas.addEventListener('lostpointercapture',release);
+function resumeDemoIfIdle(now){if(!demo&&!active&&pointerId===null&&now>=idleAt){setDemo(true);hint.style.opacity='0';}}
+
+demoButton.addEventListener('click',()=>{active=false;setDemo(!demo);hint.style.opacity='0';});
+document.querySelector('#clear').addEventListener('click',()=>{active=false;setDemo(false);nodes=[];sparks=[];sparkCarry=0;headLight=0;headHistory=[];emitCarry=0;hint.style.opacity='1';});
+window.addEventListener('resize',resize);document.addEventListener('visibilitychange',()=>{idleAt=performance.now()+2000;last=0;active=false;pointerId=null;nodes=[];sparks=[];headLight=0;headHistory=[];});canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();fail('描画が中断されました。ページを再読み込みしてください。');});
+function updateTrail(dt){
+ const base=Math.min(width,height);
+ if(active||(demo&&demoDown)){
+  headHistory.push({x:point[0],y:point[1],time:clock});
+  headLight=1;const dx=(point[0]-previous[0])*width,dy=(point[1]-previous[1])*height,dist=Math.hypot(dx,dy);
+  const speed=Math.min(dist/Math.max(dt,.001),base*5);if(dist>.35)direction=[dx/dist,dy/dist];
+  // Continuous emission in time, with additional samples for a quick swipe.
+  emitCarry+=dt*85+dist/(base*.017);const count=Math.min(36,Math.floor(emitCarry));emitCarry-=Math.floor(emitCarry);
+  for(let i=0;i<count;i++){
+   const f=(i+.5)/Math.max(count,1),seed=++serial*2.399963,side=Math.sin(seed)*base*.006;
+   nodes.push({x:(previous[0]+(point[0]-previous[0])*f)*width-direction[1]*side,y:(previous[1]+(point[1]-previous[1])*f)*height+direction[0]*side,
+    born:clock-dt*(1-f),dx:direction[0],dy:direction[1],speed,seed,life:LIFE*(.75+.25*(.5+.5*Math.sin(seed*1.7))),size:.80+.40*(.5+.5*Math.cos(seed)),tint:clock*.09,stroke});
+  }emitSparks(previous,point,dt);
+ }else{headLight*=Math.exp(-dt*18);emitCarry=0;}
+ headHistory=headHistory.filter(p=>clock-p.time<.18);
+ nodes=nodes.filter(p=>clock-p.born<p.life).slice(-360);
+}
+function trailMesh(){
+ const verts=[],base=Math.min(width,height);
+ for(const p of nodes){
+  const t=Math.max(0,clock-p.born),age=t/p.life;
+  // Roll-up expands a parcel; thinning and extinction then separate it from its neighbors.
+  const swell=Math.sin(Math.PI*Math.min(1,age/.72));
+  const pulse=.78+.22*Math.sin(p.born*21.+age*8.);
+  const baseRadius=base*(.018+.030*Math.max(0,swell))*p.size*pulse;
+  const radius=baseRadius*(1+2*Math.max(0,swell));
+  const length=baseRadius*(1.30+age*.7);
+  const release=Math.min(1,t/.28);
+  const loosen=release*release*(3-2*release);
+  const backward=t*(base*.085+p.speed*.13)*(.62+.38*loosen);
+  const side=base*.031*Math.sin(p.seed*.7+age*6.)*Math.sin(age*Math.PI)*(.65+.35*loosen);
+  const ash=Math.max(0,(age-.83)/.17);
+  const cx=p.x-p.dx*backward-p.dy*side,cy=p.y-p.dy*backward+p.dx*side+ash*ash*base*.020;
+  const fade=Math.pow(Math.max(0,1-age),.65);
+  const pinch=.42+.58*(.5+.5*Math.sin(p.born*24.+age*4.));
+  const cohesion=pinch*loosen+(.80+.20*pinch)*(1-loosen);
+  const density=.14*fade*cohesion;
+  const angle=Math.sin(p.seed+age*5.)*.28*age,co=Math.cos(angle),si=Math.sin(angle);
+  const dx=p.dx*co-p.dy*si,dy=p.dx*si+p.dy*co;
+  // Each parcel is its own quad; no edges connect neighboring parcels.
+  for(const [u,v] of [[-1,-1],[1,-1],[-1,1],[-1,1],[1,-1],[1,1]]){
+   verts.push(cx+dx*v*length-dy*u*radius,cy+dy*v*length+dx*u*radius,u,v,age,p.tint+age*.86,p.seed,density);
+  }
+ }
+ return new Float32Array(verts);
+}
+function updateHotTrail(){
+ hotTrailData.fill(0);
+ for(let i=0;i<8;i++){
+  const sampleTime=clock-(i+1)*.020;
+  let a=null,b=null;
+  for(const p of headHistory){if(p.time<=sampleTime)a=p;else{b=p;break;}}
+  if(!a)continue;b=b||a;
+  const f=b.time>a.time?(sampleTime-a.time)/(b.time-a.time):0;
+  hotTrailData.set([a.x+(b.x-a.x)*f,a.y+(b.y-a.y)*f,Math.exp(-(clock-sampleTime)*17)*Math.exp(-Math.max(0,sampleTime-b.time)*20)],i*3);
+ }
+}
+// Randomness is sampled once per stroke, never once per frame.
+let demoRun=null,demoKey=0,lastDemoKind='';
+function newGesture(start){
+ const kinds=['arc','ellipse','line','s'];
+ let kind=kinds[Math.floor(Math.random()*4)];
+ if(kind===lastDemoKind)kind=kinds[(kinds.indexOf(kind)+1+Math.floor(Math.random()*3))%4];
+ lastDemoKind=kind;
+ const ranges={arc:[.35,.65],ellipse:[.64,.96],line:[.24,.43],s:[.43,.76]},r=ranges[kind];
+ return {key:demoKey++,start,kind,duration:(r[0]+Math.random()*(r[1]-r[0]))*1.06,gap:1.72+Math.random()*.38,
+  angle:Math.random()*Math.PI*2,reverse:Math.random()<.5?-1:1,
+  chord:.48+Math.random()*.16,arcAngle:.75+Math.random()*1.8,
+  rx:.22+Math.random()*.09,ry:.105+Math.random()*.085,
+  startAngle:Math.random()*Math.PI*2,sweep:Math.PI*2*(.94+Math.random()*.15),
+  amplitude:.09+Math.random()*.085,phase:Math.random()*Math.PI*2,
+  modulation:.22+Math.random()*.18,power:1.02+Math.random()*.18,
+  cx:.5+(Math.random()-.5)*.05,cy:.48+(Math.random()-.5)*.05};
+}
+function gestureProgress(g,p){
+ p=Math.max(0,Math.min(1,p));
+ // Positive derivative: acceleration changes smoothly without reversing the stroke.
+ const warped=p+g.modulation/(Math.PI*2)*(Math.sin(Math.PI*2*p+g.phase)-Math.sin(g.phase));
+ return Math.pow(Math.max(0,Math.min(1,warped)),g.power);
+}
+function gesturePoint(g,p){
+ const q=gestureProgress(g,p);let x,y;
+ if(g.kind==='ellipse'){
+  const a=g.startAngle+g.reverse*q*g.sweep;
+  x=g.rx*Math.cos(a);y=g.ry*Math.sin(a);
+ }else if(g.kind==='arc'){
+  const half=g.arcAngle*.5,R=g.chord/(2*Math.sin(half)),a=(q-.5)*g.arcAngle*g.reverse;
+  x=R*Math.sin(a);y=R*(Math.cos(a)-(1+Math.cos(half))*.5);
+ }else{
+  x=(q-.5)*g.chord*g.reverse;
+  y=g.kind==='s'?g.amplitude*Math.sin(q*Math.PI*2):.012*Math.sin(q*Math.PI);
+ }
+ const c=Math.cos(g.angle),sn=Math.sin(g.angle);
+ return [g.cx+x*c-y*sn,g.cy+x*sn+y*c];
+}
+function demoState(t){
+ if(!demoRun||t<demoRun.start)demoRun=newGesture(0);
+ while(t>=demoRun.start+demoRun.duration+demoRun.gap)demoRun=newGesture(demoRun.start+demoRun.duration+demoRun.gap);
+ const local=t-demoRun.start;
+ return {key:demoRun.key,down:local<demoRun.duration,point:gesturePoint(demoRun,local/demoRun.duration),start:gesturePoint(demoRun,0)};
+}
+
+function render(){
+ gl.bindFramebuffer(gl.FRAMEBUFFER,fieldBuffer);gl.viewport(0,0,fieldW,fieldH);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+ const mesh=trailMesh();gl.useProgram(program);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,mesh,gl.DYNAMIC_DRAW);
+ for(let i=0;i<3;i++){gl.enableVertexAttribArray(attributes[i]);gl.vertexAttribPointer(attributes[i],i===2?4:2,gl.FLOAT,false,32,i===0?0:i===1?8:16);}
+ gl.uniform2f(viewportUniform,width,height);gl.uniform1f(timeUniform,clock);gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE);gl.drawArrays(gl.TRIANGLES,0,mesh.length/8);gl.disable(gl.BLEND);
+ for(const a of attributes)gl.disableVertexAttribArray(a);
+ gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,canvas.width,canvas.height);gl.useProgram(screen);gl.bindBuffer(gl.ARRAY_BUFFER,quad);gl.enableVertexAttribArray(screenAttribute);gl.vertexAttribPointer(screenAttribute,2,gl.FLOAT,false,0,0);
+ gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,fieldTexture);gl.uniform1i(screenUniform.field,0);updateHotTrail();gl.uniform3fv(screenUniform.hotTrail,hotTrailData);gl.uniform2f(screenUniform.viewport,width,height);gl.uniform2fv(screenUniform.tip,point);gl.uniform1f(screenUniform.ignition,headLight);gl.uniform1f(screenUniform.time,clock);gl.drawArrays(gl.TRIANGLES,0,6);gl.disableVertexAttribArray(screenAttribute);
+}
+resize();
+setDemo(true);
+hint.style.opacity="0";
+function frame(now){if(gl.isContextLost())return;const dt=last?Math.min((now-last)/1000,.04):1/60;last=now;clock+=dt;resumeDemoIfIdle(now);
+ if(demo){
+  const state=demoState(clock-started);
+  if(state.key!==demoSegment){demoSegment=state.key;stroke++;headHistory=[];emitCarry=0;sparkCarry=0;previous=state.start.slice();}
+  demoDown=state.down;point=state.point;
+ }else demoDown=false;
+ updateTrail(dt);render();paintSparks(dt);previous=point.slice();requestAnimationFrame(frame);
+}requestAnimationFrame(frame);
+}
+
+</script></body></html>
