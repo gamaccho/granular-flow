@@ -21,9 +21,16 @@ void main(){
  vec2 q=vUV;float age=vState.x,seed=vState.z;
  float n=noise(q*2.8+vec2(seed,time*2.1));
  q.x+=(n-.5)*.58; q.y+=sin(q.x*3.+seed+time*6.)*.11;
- float shape=exp(-dot(q,q)*3.8);
+ // Young and middle-aged parcels form flickering tongues before the late breakup.
+ float early=(1.-smoothstep(.55,.82,age))*smoothstep(.015,.10,age);
+ float wave=sin(q.y*7.-time*10.+seed);
+ q.x+=early*(.16*wave+.08*sin(q.y*13.+time*7.+seed));
+ float neck=1.-early*.38*smoothstep(-.3,.8,sin(q.y*9.-time*8.+seed));
+ float tail=1.-early*.40*(1.-smoothstep(-.85,-.05,q.y));
+ float shape=exp(-(q.x*q.x/(neck*neck*tail*tail)+q.y*q.y)*3.8);
  float fray=noise(q*3.4+vec2(seed,-time*3.));
- shape*=mix(1.,smoothstep(.12,.61,fray),smoothstep(.22,.75,age)*.85);
+ float breakup=max(smoothstep(.22,.75,age)*.85,early*.78);
+ shape*=mix(1.,smoothstep(mix(.12,.22,early),mix(.61,.65,early),fray),breakup);
  float density=shape*vState.w;
  vec3 hue=.5+.5*cos(6.283185*(vState.y+vec3(0.,.33,.67)));
  hue=pow(hue,vec3(1.2));
