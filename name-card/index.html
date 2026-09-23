@@ -247,9 +247,17 @@ function replenish(){
  }
 }
 function seedParticles(){
- randomState=INITIAL_RANDOM_SEED;resetVortices();
+ // A fresh composition on each load/reset; no serialized particle state.
+ randomState=(Math.random()*4294967296)>>>0;resetVortices();
  count=0;configureDensity();count=Math.min(MAX_PARTICLES,nx*ny);
- for(let i=0;i<count;i++){const k=i*4;data[k]=((i%nx+.5)/nx-.5)*aspect*DOMAIN;data[k+1]=((Math.floor(i/nx)+.5)/ny-.5)*DOMAIN;data[k+2]=random();data[k+3]=random();selected[i]=1;fadeProgress[i]=1;}
+ // One randomly positioned particle per density cell avoids large empty patches
+ // while removing the aligned rows and columns of the old centered grid.
+ for(let i=0;i<count;i++){
+  const k=i*4;
+  data[k]=((i%nx+random())/nx-.5)*aspect*DOMAIN;
+  data[k+1]=((Math.floor(i/nx)+random())/ny-.5)*DOMAIN;
+  data[k+2]=random();data[k+3]=random();selected[i]=1;fadeProgress[i]=1;
+ }
  advect(0);needsDraw=true;
 }
 function resize(){
