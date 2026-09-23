@@ -84,11 +84,15 @@ function nextVortexTarget(v){
  v.elapsed=0;v.duration=14+vortexRandom()*14;
 }
 function resetVortices(){
- vortexRandomState=0x9375ab21;
+ vortexRandomState=(Math.random()*4294967296)>>>0;
+ const rotation=vortexRandom()*Math.PI*2;
+ const handedness=vortexRandom()<.5?-1:1;
  for(let j=0;j<4;j++){
  const v=vortexMotion[j];
- v.x=(j%2?1:-1)*(.16+vortexRandom()*.14);
- v.y=(j<2?1:-1)*(.16+vortexRandom()*.14);
+ const angle=rotation+j*Math.PI/2+(vortexRandom()-.5)*.5;
+ const distance=.20+vortexRandom()*.13;
+ v.x=Math.cos(angle)*distance;v.y=Math.sin(angle)*distance;
+ v.spin=handedness*(j%2?-1:1)*(.8+vortexRandom()*.4);
  nextVortexTarget(v);centers[j*2]=v.x*aspect;centers[j*2+1]=v.y;
  }
 }
@@ -286,18 +290,18 @@ canvas.addEventListener('pointermove',e=>{
 for(const name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,e=>{if(drag&&drag.id===e.pointerId)clearDrag();});
 for(const name of ['pointerup','pointercancel'])window.addEventListener(name,e=>{if(drag&&drag.id===e.pointerId)clearDrag();},true);
 window.addEventListener('blur',clearDrag);
-function updateField(dt){
+function updateField(dt,initialize=false){
  const ease=1-Math.exp(-dt*12);
  const vx=spoon.pendingX/Math.max(dt,.001),vy=spoon.pendingY/Math.max(dt,.001);
  const speed=Math.hypot(vx,vy),scale=Math.min(1,1.6/Math.max(speed,.001));
  spoon.vx+=(vx*scale-spoon.vx)*ease;spoon.vy+=(vy*scale-spoon.vy)*ease;spoon.pendingX=0;spoon.pendingY=0;
  moveVortices(dt);
  const ambient=params.speed*.085*(1+boost*.8)/(1+params.viscosity*.22);
- const response=1-Math.exp(-dt/(.13+params.viscosity*.20));
+ const response=initialize?1:1-Math.exp(-dt/(.13+params.viscosity*.20));
  const radius=Math.max(.18,Math.min(aspect,1)*.40),r2=radius*radius;
  for(let y=0;y<GY;y++)for(let x=0;x<GX;x++){
  const px=(x/(GX-1)-.5)*aspect*DOMAIN,py=(y/(GY-1)-.5)*DOMAIN;let ux=0,uy=0,stream=0;
- for(let j=0;j<4;j++){const dx=px-centers[j*2],dy=py-centers[j*2+1];const weight=Math.exp(-(dx*dx+dy*dy)/(2*r2));const spin=(j%2?-1:1)*ambient*(.5+params.fold*.5);ux+=-dy/radius*weight*spin;uy+=dx/radius*weight*spin;stream+=spin*radius*weight;}
+ for(let j=0;j<4;j++){const dx=px-centers[j*2],dy=py-centers[j*2+1];const weight=Math.exp(-(dx*dx+dy*dy)/(2*r2));const spin=vortexMotion[j].spin*ambient*(.5+params.fold*.5);ux+=-dy/radius*weight*spin;uy+=dx/radius*weight*spin;stream+=spin*radius*weight;}
  // Stream-function dipole: fluid ahead follows the rod, with circulation around
  // both sides. This drives VELOCITY and keeps advected positions after release.
  const dx=px-spoon.x,dy=py-spoon.y,rr=.13*.13;
@@ -505,6 +509,9 @@ function animate(now){
  }
  requestAnimationFrame(animate);
 }
+// Initialize curved velocities directly; no simulation warmup or saved arrays.
+updateField(0,true);
+last=performance.now();
 requestAnimationFrame(animate);
 }
 
