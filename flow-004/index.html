@@ -65,8 +65,6 @@ let aspect=1,ratio=1,count=0,drawCount=0,simTime=0;
 let nx=1,ny=1,occupancy=new Uint32Array(1),donor=0;
 let cssWidth=0,cssHeight=0,displayWidth=0,displayHeight=0,needsDraw=true;
 const savedState=publicMode?window.__ART_CONFIG__.snapshot:null;
-// Published works carry settings and a seed, not per-particle state.
-const publicationSeed=publicMode&&!savedState?(window.__ART_CONFIG__.seed>>>0):0;
 const centers=new Float32Array(8);
 // Independent seeded motion: particle replenishment cannot change vortex paths.
 const vortexMotion=Array.from({length:4},()=>({}));
@@ -81,11 +79,15 @@ function nextVortexTarget(v){
  v.elapsed=0;v.duration=14+vortexRandom()*14;
 }
 function resetVortices(){
- vortexRandomState=0x9375ab21;
+ vortexRandomState=(Math.random()*4294967296)>>>0;
+ const rotation=vortexRandom()*Math.PI*2;
+ const handedness=vortexRandom()<.5?-1:1;
  for(let j=0;j<4;j++){
  const v=vortexMotion[j];
- v.x=(j%2?1:-1)*(.16+vortexRandom()*.14);
- v.y=(j<2?1:-1)*(.16+vortexRandom()*.14);
+ const angle=rotation+j*Math.PI/2+(vortexRandom()-.5)*.5;
+ const distance=.20+vortexRandom()*.13;
+ v.x=Math.cos(angle)*distance;v.y=Math.sin(angle)*distance;
+ v.spin=handedness*(j%2?-1:1)*(.8+vortexRandom()*.4);
  nextVortexTarget(v);centers[j*2]=v.x*aspect;centers[j*2+1]=v.y;
  }
 }
@@ -236,17 +238,15 @@ function replenish(){
  }
 }
 function seedParticles(){
- randomState=publicationSeed||INITIAL_RANDOM_SEED;resetVortices();
+ // A fresh composition on each load/reset; no serialized particle state.
+ randomState=(Math.random()*4294967296)>>>0;resetVortices();
  count=0;configureDensity();count=Math.min(MAX_PARTICLES,nx*ny);
- const phase=random()*Math.PI*2,phase2=random()*Math.PI*2;
+ // One randomly positioned particle per density cell avoids large empty patches
+ // while removing the aligned rows and columns of the old centered grid.
  for(let i=0;i<count;i++){
-  const k=i*4,baseX=(i%nx+.5)/nx-.5,baseY=(Math.floor(i/nx)+.5)/ny-.5;
-  if(publicationSeed){
-   // Smooth interlocking curves with a tapered edge; jitter hides the underlying grid.
-   const taper=Math.max(0,1-Math.pow(2*baseX,4))*Math.max(0,1-Math.pow(2*baseY,4));
-   data[k]=(baseX+.075*taper*Math.sin(baseY*15+phase)+(.5-random())*.8/nx)*aspect*DOMAIN;
-   data[k+1]=(baseY+.075*taper*Math.sin(baseX*16+phase2)+(.5-random())*.8/ny)*DOMAIN;
-  }else{data[k]=baseX*aspect*DOMAIN;data[k+1]=baseY*DOMAIN;}
+  const k=i*4;
+  data[k]=((i%nx+random())/nx-.5)*aspect*DOMAIN;
+  data[k+1]=((Math.floor(i/nx)+random())/ny-.5)*DOMAIN;
   data[k+2]=random();data[k+3]=random();selected[i]=1;fadeProgress[i]=1;
  }
  advect(0);needsDraw=true;
@@ -296,18 +296,18 @@ if(!publicMode){
  panel.addEventListener('pointerdown',clearDrag,true);
  panel.addEventListener('focusin',clearDrag);
 }
-function updateField(dt){
+function updateField(dt,initialize=false){
  const ease=1-Math.exp(-dt*12);
  const vx=spoon.pendingX/Math.max(dt,.001),vy=spoon.pendingY/Math.max(dt,.001);
  const speed=Math.hypot(vx,vy),scale=Math.min(1,1.6/Math.max(speed,.001));
  spoon.vx+=(vx*scale-spoon.vx)*ease;spoon.vy+=(vy*scale-spoon.vy)*ease;spoon.pendingX=0;spoon.pendingY=0;
  moveVortices(dt);
  const ambient=params.speed*.085*(1+boost*.8)/(1+params.viscosity*.22);
- const response=1-Math.exp(-dt/(.13+params.viscosity*.20));
+ const response=initialize?1:1-Math.exp(-dt/(.13+params.viscosity*.20));
  const radius=Math.max(.18,Math.min(aspect,1)*.40),r2=radius*radius;
  for(let y=0;y<GY;y++)for(let x=0;x<GX;x++){
  const px=(x/(GX-1)-.5)*aspect*DOMAIN,py=(y/(GY-1)-.5)*DOMAIN;let ux=0,uy=0,stream=0;
- for(let j=0;j<4;j++){const dx=px-centers[j*2],dy=py-centers[j*2+1];const weight=Math.exp(-(dx*dx+dy*dy)/(2*r2));const spin=(j%2?-1:1)*ambient*(.5+params.fold*.5);ux+=-dy/radius*weight*spin;uy+=dx/radius*weight*spin;stream+=spin*radius*weight;}
+ for(let j=0;j<4;j++){const dx=px-centers[j*2],dy=py-centers[j*2+1];const weight=Math.exp(-(dx*dx+dy*dy)/(2*r2));const spin=vortexMotion[j].spin*ambient*(.5+params.fold*.5);ux+=-dy/radius*weight*spin;uy+=dx/radius*weight*spin;stream+=spin*radius*weight;}
  // Stream-function dipole: fluid ahead follows the rod, with circulation around
  // both sides. This drives VELOCITY and keeps advected positions after release.
  const dx=px-spoon.x,dy=py-spoon.y,rr=.13*.13;
@@ -619,6 +619,7 @@ function animate(now){
  requestAnimationFrame(animate);
 }
 if(savedState){restoreSnapshot(savedState);render();last=performance.now();}
+else updateField(0,true);
 requestAnimationFrame(animate);
 }
 
