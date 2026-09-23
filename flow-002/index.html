@@ -554,7 +554,27 @@ function animate(now){
  }
  requestAnimationFrame(animate);
 }
-requestAnimationFrame(animate);
+// Prepare the flow before its first visible frame, without an embedded snapshot.
+// Yield between small batches so startup never blocks the page for a long task.
+async function startArtwork(){
+ if(publicMode){
+  canvas.style.visibility='hidden';
+  const step=.125,totalSteps=240;
+  for(let i=0;i<totalSteps;){
+   const deadline=performance.now()+8;
+   do{
+    simTime+=step*params.speed*.25;
+    updateField(step);advect(step);replenish();i++;
+   }while(i<totalSteps&&performance.now()<deadline);
+   if(i<totalSteps)await new Promise(resolve=>setTimeout(resolve,0));
+   if(contextLost)return;
+  }
+  advect(0);render();canvas.style.visibility='';
+ }
+ last=performance.now();fpsTime=last;
+ requestAnimationFrame(animate);
+}
+startArtwork().catch(error=>{canvas.style.visibility='';fail(error.message);});
 }
 
 </script></body></html>
