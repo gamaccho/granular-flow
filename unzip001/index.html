@@ -5,7 +5,7 @@
 <title>UNZIP 001</title>
 <meta name="description" content="UNZIP 001 — 指の軌跡を追って開く、金色のジッパーと虹色の光。">
 <meta name="theme-color" content="#151619">
-<meta name="artwork-version" content="unzip001-20260925-r1">
+<meta name="artwork-version" content="unzip001-20260925-r2">
 <style>
 *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#151619}canvas{display:block;width:100%;height:100%;touch-action:none}
 </style>
@@ -81,35 +81,74 @@ function advance(p,dt){
  if(p.done&&p.open>=p.length){p.settled+=dt;if(p.settled>=900)p.closing=true}}
  else{p.closedFor=(p.closedFor||0)+dt;const t=Math.min(1,p.closedFor/2200),ease=t*t*(3-2*t);p.open=p.length*(1-ease);const fade=Math.max(0,Math.min(1,(p.closedFor-2200)/2200));p.opacity=1-fade;if(p.closedFor>=4400)p.expired=true}
 }
-// Composite the completed zipper once, so overlapping rails, teeth and shadows
-// cannot accumulate opacity and stay visible until the last fade frames.
-function draw(p){
+// All openings reveal one shared color field. The cloth is a single surface.
+function openingPath(rails){
+ ctx.beginPath();rails[0].points.forEach((q,i)=>i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y));
+ for(let i=rails[1].points.length-1;i>=0;i--){const q=rails[1].points[i];ctx.lineTo(q.x,q.y)}ctx.closePath();
+}
+const spiralTile=document.createElement('canvas'),spiralCtx=spiralTile.getContext('2d');
+const spiralSurface=document.createElement('canvas'),spiralSurfaceCtx=spiralSurface.getContext('2d');
+let spiralPattern=null,spiralStamp=-Infinity,spiralPixels=null;
+function rainbowField(){
+ const motion=reduced?0:time/1000;
+ if(spiralPattern&&spiralSurface.width===Math.ceil(w)&&spiralSurface.height===Math.ceil(h)&&(reduced||time-spiralStamp<33))return spiralPattern;
+ const scale=Math.min(1,256/Math.max(w,h)),sw=Math.max(1,Math.ceil(w*scale)),sh=Math.max(1,Math.ceil(h*scale));
+ if(spiralTile.width!==sw||spiralTile.height!==sh){spiralTile.width=sw;spiralTile.height=sh;spiralPixels=null}
+ if(!spiralPixels)spiralPixels=spiralCtx.createImageData(sw,sh);
+ const cx=w*(.5+.07*Math.sin(motion*.18)),cy=h*(.5+.05*Math.cos(motion*.16));
+ const radiusScale=Math.max(120,Math.min(w,h)*.65),data=spiralPixels.data;
+ for(let y=0;y<sh;y++)for(let x=0;x<sw;x++){
+  const dx=(x+.5)*w/sw-cx,dy=(y+.5)*h/sh-cy,r=Math.hypot(dx,dy);
+  // Angle plus radius produces a continuous spiral, with no seam at +/- PI.
+  const hue=((Math.atan2(dy,dx)/(Math.PI*2)-r/radiusScale+motion*.045)%1+1)%1;
+  const sector=hue*6,chroma=.684,secondary=chroma*(1-Math.abs(sector%2-1)),base=.278;
+  let red=0,green=0,blue=0;
+  if(sector<1){red=chroma;green=secondary}else if(sector<2){red=secondary;green=chroma}else if(sector<3){green=chroma;blue=secondary}else if(sector<4){green=secondary;blue=chroma}else if(sector<5){red=secondary;blue=chroma}else{red=chroma;blue=secondary}
+  const i=(y*sw+x)*4;data[i]=(red+base)*255;data[i+1]=(green+base)*255;data[i+2]=(blue+base)*255;data[i+3]=255;
+ }
+ spiralCtx.putImageData(spiralPixels,0,0);
+ if(spiralSurface.width!==Math.ceil(w)||spiralSurface.height!==Math.ceil(h)){spiralSurface.width=Math.ceil(w);spiralSurface.height=Math.ceil(h)}
+ spiralSurfaceCtx.imageSmoothingEnabled=true;spiralSurfaceCtx.imageSmoothingQuality='high';
+ spiralSurfaceCtx.drawImage(spiralTile,0,0,w,h);
+ spiralPattern=mainCtx.createPattern(spiralSurface,'no-repeat');spiralStamp=time;return spiralPattern;
+}
+function drawScene(){
+ const visible=paths.filter(p=>!p.expired&&p.points.length>1&&p.opacity>0);
+ if(!visible.length)return;
+ const geometry=new Map(visible.map(p=>[p,[rail(p,-1),rail(p,1)]]));
+ ctx.fillStyle=rainbowField();
+ for(const p of visible){if(p.open>0){openingPath(geometry.get(p));ctx.fill()}}
+ for(const p of visible)draw(p,visible,geometry);
+}
+// Cut all rail/teeth/shadow layers against the same union of openings.
+// Closing one cut never paints cloth over another cut that is still open.
+function draw(p,others=[],geometry=null){
  if(p.points.length<2||p.opacity<=0)return;
- if(p.opacity>=1){drawZipper(p);return}
+ const rails=geometry?.get(p)||[rail(p,-1),rail(p,1)];
  if(fadeCanvas.width!==canvas.width||fadeCanvas.height!==canvas.height){fadeCanvas.width=canvas.width;fadeCanvas.height=canvas.height}
  fadeCtx.setTransform(1,0,0,1,0,0);fadeCtx.clearRect(0,0,fadeCanvas.width,fadeCanvas.height);
  fadeCtx.setTransform(dpr,0,0,dpr,0,0);
- ctx=fadeCtx;try{drawZipper(p)}finally{ctx=mainCtx}
+ ctx=fadeCtx;
+ try{
+  drawRails(p,rails);
+  ctx.save();ctx.globalCompositeOperation='destination-out';ctx.fillStyle='#000';
+  for(const other of others){if(other.open>0){openingPath(geometry?.get(other)||[rail(other,-1),rail(other,1)]);ctx.fill()}}
+  ctx.restore();
+  drawSlider(p);
+ }finally{ctx=mainCtx}
  mainCtx.save();mainCtx.globalAlpha=p.opacity;mainCtx.drawImage(fadeCanvas,0,0,w,h);mainCtx.restore();
 }
-function drawZipper(p){
- const length=p.length,rails=[rail(p,-1),rail(p,1)];
+function drawRails(p,rails){
  ctx.save();ctx.globalAlpha=1;ctx.lineJoin='round';ctx.lineCap='round';ctx.miterLimit=1;
- ctx.beginPath();rails[0].points.forEach((q,i)=>i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y));for(const q of [...rails[1].points].reverse())ctx.lineTo(q.x,q.y);ctx.closePath();ctx.save();ctx.clip();
- // Move the whole spectrum: direction, width, center and hue drift together.
- const a=p.points[0],b=p.points.at(-1),dx=b.x-a.x,dy=b.y-a.y,span=Math.hypot(dx,dy),motion=reduced?0:time/1000;
- const angle=(span>1?Math.atan2(dy,dx):0)+Math.sin(motion*.65)*.65;
- const rainbowSpan=Math.max(200,span)*(.9+.18*Math.sin(motion*.8));
- const ux=Math.cos(angle),uy=Math.sin(angle),drift=Math.sin(motion*.55)*rainbowSpan*.22;
- const cx=(a.x+b.x)/2+ux*drift,cy=(a.y+b.y)/2+uy*drift;
- const gradient=ctx.createLinearGradient(cx-ux*rainbowSpan/2,cy-uy*rainbowSpan/2,cx+ux*rainbowSpan/2,cy+uy*rainbowSpan/2);
- for(let i=0;i<=36;i++)gradient.addColorStop(i/36,`hsl(${(i*10-motion*32)%360} 90% 62%)`);
- ctx.fillStyle=gradient;ctx.fillRect(0,0,w,h);ctx.restore();
  for(const r of rails){edge(r);ctx.strokeStyle='#05070c';ctx.lineWidth=15;ctx.shadowColor='#000';ctx.shadowBlur=12;ctx.stroke();ctx.shadowBlur=0;edge(r);ctx.strokeStyle='#30333d';ctx.lineWidth=10;ctx.stroke();edge(r);ctx.strokeStyle='#9b773b';ctx.lineWidth=1;ctx.stroke()}
  for(const side of [-1,1]){const teeth=rail(p,side,3);for(const q of toothPositions(teeth,side===1?7:4)){ctx.save();ctx.translate(q.x,q.y);ctx.rotate(q.angle);const metal=ctx.createLinearGradient(0,-4,0,4);metal.addColorStop(0,'#fff0b5');metal.addColorStop(.35,'#d9a83e');metal.addColorStop(1,'#785015');ctx.fillStyle=metal;ctx.beginPath();ctx.roundRect(-2.5,-3.5,5,7,1);ctx.fill();ctx.restore()}}
+ ctx.restore();
+}
+function drawSlider(p){
+ ctx.save();ctx.globalAlpha=1;
  const q=sample(p,p.open);ctx.translate(q.x,q.y);ctx.rotate(q.angle);ctx.shadowColor='#0009';ctx.shadowBlur=9;ctx.shadowOffsetY=3;const metal=ctx.createLinearGradient(0,-11,0,11);metal.addColorStop(0,'#fff1b8');metal.addColorStop(.4,'#bd8428');metal.addColorStop(.6,'#ffe499');metal.addColorStop(1,'#8b5a18');ctx.fillStyle=metal;ctx.beginPath();ctx.roundRect(-12,-10,23,20,6);ctx.fill();ctx.shadowBlur=0;ctx.shadowOffsetY=0;ctx.strokeStyle='#795019';ctx.lineWidth=1;ctx.stroke();ctx.fillStyle=metal;ctx.beginPath();ctx.roundRect(-30,-5,27,10,4);ctx.fill();ctx.stroke();ctx.fillStyle='#3e2a12';ctx.beginPath();ctx.roundRect(-26,-2,12,4,2);ctx.fill();ctx.restore();
 }
-function frame(now){const dt=Math.min(50,now-last);last=now;time+=dt;tickAuto(dt);drawBackground();for(const p of paths){advance(p,dt);if(!p.expired)draw(p)}paths=paths.filter(p=>!p.expired);requestAnimationFrame(frame)}
+function frame(now){const dt=Math.min(50,now-last);last=now;time+=dt;tickAuto(dt);drawBackground();for(const p of paths)advance(p,dt);paths=paths.filter(p=>!p.expired);drawScene();requestAnimationFrame(frame)}
 addEventListener('resize',resize);resize();requestAnimationFrame(frame);
 </script>
 </html>
