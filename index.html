@@ -28,11 +28,14 @@ layout: null
     {% unless excluded contains folder %}
       {% assign prefix = folder | slice: 0, 5 %}
       {% assign ignition_prefix = folder | slice: 0, 8 %}
+      {% assign unzip_prefix = folder | slice: 0, 5 %}
       {% assign title = file.title | default: folder %}
       {% if prefix == "flow-" %}
         {% assign title = folder | remove_first: "flow-" | prepend: "Flow " %}
       {% elsif ignition_prefix == "ignition" %}
         {% assign title = folder | remove_first: "ignition" | prepend: "Ignition " %}
+      {% elsif unzip_prefix == "unzip" %}
+        {% assign title = folder | remove_first: "unzip" | prepend: "UNZIP " %}
       {% elsif folder == "name-card" %}
         {% assign title = "Name Card" %}
       {% endif %}
@@ -57,7 +60,7 @@ layout: null
 // Unknown series use their page title when available; the folder link always works.
 async function enrichTitle(card){
  const folder=card.dataset.folder;
- if(/^(?:flow-\d+|ignition\d+|name-card)$/.test(folder))return;
+ if(/^(?:flow-\d+|ignition\d+|unzip\d+|name-card)$/.test(folder))return;
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
  try{
   const response=await fetch(card.href,{signal:controller.signal});

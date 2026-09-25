@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>UNZIP 001</title>
+<meta name="description" content="UNZIP 001 — 指の軌跡を追って開く、金色のジッパーと虹色の光。">
+<meta name="theme-color" content="#151619">
+<meta name="artwork-version" content="unzip001-20260925-r1">
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#151619}canvas{display:block;width:100%;height:100%;touch-action:none}
+</style>
+<canvas aria-label="指やマウスでなぞると、その軌跡のジッパーが開きます"></canvas>
+<script>
+'use strict';
+const canvas=document.querySelector('canvas'),mainCtx=canvas.getContext('2d');
+const fadeCanvas=document.createElement('canvas'),fadeCtx=fadeCanvas.getContext('2d');
+let ctx=mainCtx;
+let w=0,h=0,dpr=1,paths=[],active=null,last=performance.now(),time=0;
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+// A static, low-contrast 3-over-1 twill tile; generated once, never animated.
+const denimTile=document.createElement('canvas');denimTile.width=denimTile.height=384;
+const denimCtx=denimTile.getContext('2d'),denimPixels=denimCtx.createImageData(384,384);
+let textileSeed=41723;
+function textileNoise(){textileSeed=(Math.imul(textileSeed,1664525)+1013904223)>>>0;return textileSeed/4294967296}
+const warp=Array.from({length:128},()=>textileNoise()-.5),weft=Array.from({length:128},()=>textileNoise()-.5);
+for(let y=0;y<384;y++)for(let x=0;x<384;x++){
+ const col=Math.floor(x/3),row=Math.floor(y/3),over=((col+row)%4)<3;
+ const across=over?x%3:y%3,along=over?y%3:x%3;
+ const yarn=(across===1?10:across===0?1:-4)+(along===0?-1.5:1);
+ const grain=(textileNoise()-.5)*3.5,slub=(over?warp[col]:weft[row])*3;
+ const shade=yarn+grain+slub+(over?1:-2),i=(y*384+x)*4;
+ denimPixels.data[i]=21+shade;denimPixels.data[i+1]=22+shade;denimPixels.data[i+2]=25+shade;denimPixels.data[i+3]=255;
+}
+denimCtx.putImageData(denimPixels,0,0);
+const denimPattern=mainCtx.createPattern(denimTile,'repeat');
+function drawBackground(){ctx.fillStyle=denimPattern;ctx.fillRect(0,0,w,h)}
+
+function resize(){const ow=w,oh=h;w=innerWidth;h=innerHeight;dpr=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);if(ow&&oh){for(const p of paths){for(const q of p.points){q.x*=w/ow;q.y*=h/oh}measure(p)}}}
+function measure(p){p.length=0;for(let i=0;i<p.points.length;i++){if(i)p.length+=Math.hypot(p.points[i].x-p.points[i-1].x,p.points[i].y-p.points[i-1].y);p.points[i].s=p.length}p.open=Math.min(p.open,p.length)}
+function append(p,x,y){const a=p.points.at(-1),dist=Math.hypot(x-a.x,y-a.y);if(dist<3)return;const count=Math.ceil(dist/5);for(let j=1;j<=count;j++){p.length+=dist/count;p.points.push({x:a.x+(x-a.x)*j/count,y:a.y+(y-a.y)*j/count,s:p.length})}if(p.points.length>6500)finish()}
+let autoStroke=null,nextAutoAt=2500+Math.random()*1000;
+function deferAuto(){nextAutoAt=time+2500+Math.random()*1000}
+function stopAuto(){if(autoStroke)autoStroke.path.done=true;autoStroke=null;deferAuto()}
+function newPath(x,y,id=null){const p={id,points:[{x,y,s:0}],length:0,open:0,age:0,done:false,settled:0,opacity:1};paths.push(p);return p}
+function autoPoint(controls,t){const u=1-t;return{x:u*u*u*controls[0].x+3*u*u*t*controls[1].x+3*u*t*t*controls[2].x+t*t*t*controls[3].x,y:u*u*u*controls[0].y+3*u*u*t*controls[1].y+3*u*t*t*controls[2].y+t*t*t*controls[3].y}}
+function tickAuto(dt){
+ if(active||document.hidden){nextAutoAt=null;return}
+ // Wait for every visible zipper (including manual strokes) to finish fading.
+ if(!autoStroke&&paths.some(p=>!p.expired)){nextAutoAt=null;return}
+ if(!autoStroke&&nextAutoAt===null)deferAuto();
+ if(!autoStroke&&time>=nextAutoAt){
+  const mx=Math.min(70,w*.18),top=Math.min(180,h*.26),bottom=Math.max(top+20,h-Math.min(110,h*.18));
+  const point=()=>({x:mx+Math.random()*(w-2*mx),y:top+Math.random()*(bottom-top)});
+  const controls=[point(),point(),point(),point()];
+  // Give even short/narrow viewports a visible stroke, without leaving the canvas.
+  if(Math.hypot(controls[3].x-controls[0].x,controls[3].y-controls[0].y)<Math.min(w,h)*.3){controls[3]={x:w-controls[0].x,y:controls[0].y<(top+bottom)/2?bottom:top}}
+  autoStroke={controls,path:newPath(controls[0].x,controls[0].y),elapsed:0,duration:1100+Math.random()*600};nextAutoAt=null;
+ }
+ if(autoStroke){const a=autoStroke;a.elapsed+=dt;const t=Math.min(1,a.elapsed/a.duration),q=autoPoint(a.controls,t);append(a.path,q.x,q.y);if(t===1){a.path.done=true;autoStroke=null}}
+}
+canvas.addEventListener('pointerdown',e=>{stopAuto();if(active)return;canvas.setPointerCapture(e.pointerId);active=newPath(e.clientX,e.clientY,e.pointerId)});
+canvas.addEventListener('pointermove',e=>{if(!active||active.id!==e.pointerId)return;const samples=e.getCoalescedEvents?.();for(const q of samples?.length?samples:[e]){if(active)append(active,q.clientX,q.clientY)}});
+function finish(){if(active)active.done=true;active=null;deferAuto()}
+canvas.addEventListener('pointerup',e=>{if(active?.id===e.pointerId){append(active,e.clientX,e.clientY);finish()}});canvas.addEventListener('pointercancel',finish);canvas.addEventListener('lostpointercapture',finish);
+document.addEventListener('visibilitychange',()=>{stopAuto();if(document.hidden)finish()});
+function sample(p,s){const pts=p.points;let lo=0,hi=pts.length-1;while(lo<hi){const m=(lo+hi)>>1;if(pts[m].s<s)lo=m+1;else hi=m}const i=Math.max(1,lo),a=pts[i-1],b=pts[Math.min(i,pts.length-1)],t=Math.max(0,Math.min(1,(s-a.s)/(b.s-a.s||1))),dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1;return{x:a.x+dx*t,y:a.y+dy*t,nx:-dy/len,ny:dx/len,angle:Math.atan2(dy,dx)}}
+function gap(p,s){return Math.min(42,w*.075)*(1-Math.exp(-Math.max(0,p.open-s)/66))*Math.min(1,s/45)}
+// Each rail owns its arc length: outside and inside curves get the same tooth pitch.
+function rail(p,side,inset=0){
+ const points=[];const count=Math.max(1,Math.ceil(p.length/3));
+ for(let i=0;i<=count;i++){const s=p.length*i/count,q=sample(p,s),g=gap(p,s)+inset;points.push({x:q.x+q.nx*g*side,y:q.y+q.ny*g*side})}
+ // Round changes of direction without extending a miter beyond the rail.
+ for(let pass=0;pass<3;pass++){const copy=points.map(q=>({...q}));for(let i=1;i<points.length-1;i++){points[i].x=(copy[i-1].x+2*copy[i].x+copy[i+1].x)/4;points[i].y=(copy[i-1].y+2*copy[i].y+copy[i+1].y)/4}}
+ let length=0;points.forEach((q,i)=>{if(i)length+=Math.hypot(q.x-points[i-1].x,q.y-points[i-1].y);q.s=length});return{points,length};
+}
+function edge(r){ctx.beginPath();r.points.forEach((q,i)=>i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y))}
+function toothPositions(r,offset){const result=[];for(let s=offset;s<r.length;s+=9)result.push({...sample(r,s),s});return result}
+function advance(p,dt){
+ p.age+=dt;
+ if(!p.closing){const target=p.done?p.length:Math.max(0,p.length-65);if(p.age>180)p.open=Math.min(target,p.open+Math.max(100,(target-p.open)*3)*dt/1000);
+ if(p.done&&p.open>=p.length){p.settled+=dt;if(p.settled>=900)p.closing=true}}
+ else{p.closedFor=(p.closedFor||0)+dt;const t=Math.min(1,p.closedFor/2200),ease=t*t*(3-2*t);p.open=p.length*(1-ease);const fade=Math.max(0,Math.min(1,(p.closedFor-2200)/2200));p.opacity=1-fade;if(p.closedFor>=4400)p.expired=true}
+}
+// Composite the completed zipper once, so overlapping rails, teeth and shadows
+// cannot accumulate opacity and stay visible until the last fade frames.
+function draw(p){
+ if(p.points.length<2||p.opacity<=0)return;
+ if(p.opacity>=1){drawZipper(p);return}
+ if(fadeCanvas.width!==canvas.width||fadeCanvas.height!==canvas.height){fadeCanvas.width=canvas.width;fadeCanvas.height=canvas.height}
+ fadeCtx.setTransform(1,0,0,1,0,0);fadeCtx.clearRect(0,0,fadeCanvas.width,fadeCanvas.height);
+ fadeCtx.setTransform(dpr,0,0,dpr,0,0);
+ ctx=fadeCtx;try{drawZipper(p)}finally{ctx=mainCtx}
+ mainCtx.save();mainCtx.globalAlpha=p.opacity;mainCtx.drawImage(fadeCanvas,0,0,w,h);mainCtx.restore();
+}
+function drawZipper(p){
+ const length=p.length,rails=[rail(p,-1),rail(p,1)];
+ ctx.save();ctx.globalAlpha=1;ctx.lineJoin='round';ctx.lineCap='round';ctx.miterLimit=1;
+ ctx.beginPath();rails[0].points.forEach((q,i)=>i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y));for(const q of [...rails[1].points].reverse())ctx.lineTo(q.x,q.y);ctx.closePath();ctx.save();ctx.clip();
+ // Move the whole spectrum: direction, width, center and hue drift together.
+ const a=p.points[0],b=p.points.at(-1),dx=b.x-a.x,dy=b.y-a.y,span=Math.hypot(dx,dy),motion=reduced?0:time/1000;
+ const angle=(span>1?Math.atan2(dy,dx):0)+Math.sin(motion*.65)*.65;
+ const rainbowSpan=Math.max(200,span)*(.9+.18*Math.sin(motion*.8));
+ const ux=Math.cos(angle),uy=Math.sin(angle),drift=Math.sin(motion*.55)*rainbowSpan*.22;
+ const cx=(a.x+b.x)/2+ux*drift,cy=(a.y+b.y)/2+uy*drift;
+ const gradient=ctx.createLinearGradient(cx-ux*rainbowSpan/2,cy-uy*rainbowSpan/2,cx+ux*rainbowSpan/2,cy+uy*rainbowSpan/2);
+ for(let i=0;i<=36;i++)gradient.addColorStop(i/36,`hsl(${(i*10-motion*32)%360} 90% 62%)`);
+ ctx.fillStyle=gradient;ctx.fillRect(0,0,w,h);ctx.restore();
+ for(const r of rails){edge(r);ctx.strokeStyle='#05070c';ctx.lineWidth=15;ctx.shadowColor='#000';ctx.shadowBlur=12;ctx.stroke();ctx.shadowBlur=0;edge(r);ctx.strokeStyle='#30333d';ctx.lineWidth=10;ctx.stroke();edge(r);ctx.strokeStyle='#9b773b';ctx.lineWidth=1;ctx.stroke()}
+ for(const side of [-1,1]){const teeth=rail(p,side,3);for(const q of toothPositions(teeth,side===1?7:4)){ctx.save();ctx.translate(q.x,q.y);ctx.rotate(q.angle);const metal=ctx.createLinearGradient(0,-4,0,4);metal.addColorStop(0,'#fff0b5');metal.addColorStop(.35,'#d9a83e');metal.addColorStop(1,'#785015');ctx.fillStyle=metal;ctx.beginPath();ctx.roundRect(-2.5,-3.5,5,7,1);ctx.fill();ctx.restore()}}
+ const q=sample(p,p.open);ctx.translate(q.x,q.y);ctx.rotate(q.angle);ctx.shadowColor='#0009';ctx.shadowBlur=9;ctx.shadowOffsetY=3;const metal=ctx.createLinearGradient(0,-11,0,11);metal.addColorStop(0,'#fff1b8');metal.addColorStop(.4,'#bd8428');metal.addColorStop(.6,'#ffe499');metal.addColorStop(1,'#8b5a18');ctx.fillStyle=metal;ctx.beginPath();ctx.roundRect(-12,-10,23,20,6);ctx.fill();ctx.shadowBlur=0;ctx.shadowOffsetY=0;ctx.strokeStyle='#795019';ctx.lineWidth=1;ctx.stroke();ctx.fillStyle=metal;ctx.beginPath();ctx.roundRect(-30,-5,27,10,4);ctx.fill();ctx.stroke();ctx.fillStyle='#3e2a12';ctx.beginPath();ctx.roundRect(-26,-2,12,4,2);ctx.fill();ctx.restore();
+}
+function frame(now){const dt=Math.min(50,now-last);last=now;time+=dt;tickAuto(dt);drawBackground();for(const p of paths){advance(p,dt);if(!p.expired)draw(p)}paths=paths.filter(p=>!p.expired);requestAnimationFrame(frame)}
+addEventListener('resize',resize);resize();requestAnimationFrame(frame);
+</script>
+</html>
