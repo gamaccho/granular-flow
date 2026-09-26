@@ -1,4 +1,4 @@
-<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>flow-009</title><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#171421}.stage{width:100%;height:100dvh;display:grid;place-items:center;overflow:hidden}.frame{position:relative;flex:none}canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}#error{display:none;position:absolute;inset:20px;color:white;background:#222;padding:12px}</style></head><body><div class="stage"><section class="frame"><canvas id="canvas" aria-label="ドラッグして流れを作るアート"></canvas><div id="error" role="alert"></div></section></div><script>window.__ART_CONFIG__={"params":{"roughness":1,"exposure":1.1,"speed":1.94,"viscosity":1.36,"fold":1.52,"grain":8.2,"relief":0.5,"grainVariation":27,"hue":228,"hueRange":49,"saturation":74,"lightness":64,"red":-27,"green":-30,"blue":29},"aspect":0.5625};</script><script id="app-script">
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>flow-009</title><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#171421}.stage{width:100%;height:100dvh;display:grid;place-items:center;overflow:hidden}.frame{position:relative;flex:none}canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}#error{display:none;position:absolute;inset:20px;color:white;background:#222;padding:12px}</style></head><body><div class="stage"><section class="frame"><canvas id="canvas" aria-label="ドラッグして流れを作るアート"></canvas><div id="error" role="alert"></div></section></div><script>window.__ART_CONFIG__={"params":{"roughness":1,"exposure":1.1,"speed":1.94,"viscosity":1.36,"fold":1.52,"grain":8.2,"relief":0.5,"grainVariation":27,"hue":228,"hueRange":49,"saturation":74,"lightness":64,"red":-27,"green":-30,"blue":29},"layout":"fullscreen","speedVariation":{"range":0.3,"minSeconds":4,"maxSeconds":10}};</script><script id="app-script">
 'use strict';
 // Full-coverage sphere-impostor rendering. This is an artistic flow field,
 // not a Navier–Stokes simulation. All fragments are opaque, including grain edges.
@@ -24,15 +24,13 @@ const publicMode=Boolean(window.__ART_CONFIG__);
 const params={roughness:1.0,exposure:1.10},inputs={};
 for(const [,items]of definitions)for(const [key,,,,,value]of items)params[key]=value;
 if(publicMode)Object.assign(params,window.__ART_CONFIG__.params);
-let frameAspect=publicMode?window.__ART_CONFIG__.aspect:1;
+// FLOW fullscreen-speed release 20260927-r8
 let recording=null;
 let resetInteraction=()=>{};
 function fitFrame(){
  if(recording)return;
  const stage=document.querySelector('.stage'),frame=document.querySelector('.frame');
- if(!publicMode)stage.style.setProperty('--frame-aspect',String(frameAspect));
- const width=Math.min(stage.clientWidth,stage.clientHeight*frameAspect);
- frame.style.width=width+'px';frame.style.height=width/frameAspect+'px';
+ frame.style.width=stage.clientWidth+'px';frame.style.height=stage.clientHeight+'px';
 }
 new ResizeObserver(fitFrame).observe(document.querySelector('.stage'));fitFrame();
 if(!publicMode){
@@ -41,14 +39,30 @@ if(!publicMode){
  new ResizeObserver(syncHeaderHeight).observe(dashboardHeader);syncHeaderHeight();
 }
 
-if(!publicMode)document.querySelector('#aspect').addEventListener('change',e=>{const [w,h]=e.target.value.split(':').map(Number);resetInteraction();frameAspect=w/h;fitFrame();});
 if(!publicMode)
 for(const [title,items] of definitions){const group=document.createElement('fieldset');const legend=document.createElement('legend');legend.textContent=title;group.append(legend);
  for(const [key,title,min,max,step,value,unit] of items){params[key]=value;const row=document.createElement('div');row.className='control';const label=document.createElement('label');label.htmlFor=key;label.textContent=title;const output=document.createElement('output');output.htmlFor=key;label.append(output);const input=document.createElement('input');Object.assign(input,{type:'range',id:key,min,max,step,value});function update(){params[key]=Number(input.value);output.textContent=Number(input.value).toFixed(step<1?2:0)+unit}input.addEventListener('input',update);inputs[key]={input,update};update();row.append(label,input);group.append(row)}document.querySelector('#controls').append(group)}
 const canvas=document.querySelector('#canvas'),gl=canvas.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
 function fail(message){const el=document.querySelector('#error');el.style.display='block';el.textContent=message;if(!publicMode)document.querySelector('#status').textContent='RENDER UNAVAILABLE'}
 if(!gl){fail('WebGLが利用できません。ブラウザーのハードウェアアクセラレーションを有効にして再読み込みしてください。')}else{try{start()}catch(error){fail('描画を開始できませんでした: '+error.message);console.error(error)}}
+// Smooth speed multiplier, independent of particle/vortex random streams.
+function createSpeedEnvelope(random=Math.random){
+ let from=1,to=.7+random()*.6,elapsed=0,duration=4+random()*6;
+ return {advance(dt){
+  if(!(dt>0))dt=0;
+  elapsed=Math.min(duration,elapsed+Math.min(dt,.1));
+  const t=elapsed/duration,s=t*t*(3-2*t),factor=from+(to-from)*s;
+  if(elapsed>=duration){from=to;to=.7+random()*.6;elapsed=0;duration=4+random()*6;}
+  return Math.max(.7,Math.min(1.3,factor));
+ }};
+}
 function start(){
+const speedEnvelope=createSpeedEnvelope();
+const variableSpeed=publicMode&&Boolean(window.__ART_CONFIG__.speedVariation);
+let speedFactor=1;
+function effectiveSpeed(){return params.speed*speedFactor;}
+function advanceSpeed(dt){speedFactor=variableSpeed?speedEnvelope.advance(dt):1;}
+
 // Persistent particle advection in a smooth, divergence-free velocity field.
 // Viscosity damps velocity, never displacement; there are no rest positions.
 const DOMAIN=1.5;
@@ -93,7 +107,7 @@ function resetVortices(){
  }
 }
 function moveVortices(dt){
- const elapsed=dt*params.speed/3;
+ const elapsed=dt*effectiveSpeed()/3;
  for(let j=0;j<4;j++){
  const v=vortexMotion[j];v.elapsed+=elapsed;
  while(v.elapsed>=v.duration){const remainder=v.elapsed-v.duration;v.x=v.toX;v.y=v.toY;nextVortexTarget(v);v.elapsed=remainder;}
@@ -282,7 +296,7 @@ function resize(){
  if(Math.abs(rect.width-displayWidth)<.5&&Math.abs(rect.height-displayHeight)<.5)return;
  clearDrag();
  const previousAspect=aspect;displayWidth=rect.width;displayHeight=rect.height;
- cssWidth=savedState?savedState.width:rect.width;cssHeight=savedState?savedState.height:rect.height;
+ cssWidth=rect.width;cssHeight=rect.height;
  ratio=Math.min(devicePixelRatio||1,1920/Math.max(rect.width,rect.height),1080/Math.min(rect.width,rect.height));
  canvas.width=Math.max(1,Math.round(rect.width*ratio));canvas.height=Math.max(1,Math.round(rect.height*ratio));aspect=cssWidth/cssHeight;
  ratio=canvas.height/cssHeight;
@@ -327,7 +341,7 @@ function updateField(dt,initialize=false){
  const speed=Math.hypot(vx,vy),scale=Math.min(1,1.6/Math.max(speed,.001));
  spoon.vx+=(vx*scale-spoon.vx)*ease;spoon.vy+=(vy*scale-spoon.vy)*ease;spoon.pendingX=0;spoon.pendingY=0;
  moveVortices(dt);
- const ambient=params.speed*.085*(1+boost*.8)/(1+params.viscosity*.22);
+ const ambient=effectiveSpeed()*.085*(1+boost*.8)/(1+params.viscosity*.22);
  const response=initialize?1:1-Math.exp(-dt/(.13+params.viscosity*.20));
  const radius=Math.max(.18,Math.min(aspect,1)*.40),r2=radius*radius;
  for(let y=0;y<GY;y++)for(let x=0;x<GX;x++){
@@ -526,6 +540,7 @@ function restoreSnapshot(snapshot){
   throw Error('作品の保存データに対応していません。');
  count=snapshot.count;nx=snapshot.nx;ny=snapshot.ny;occupancy=new Uint32Array(nx*ny);
  decodeArray(snapshot.particles,data,count*4);decodeArray(snapshot.selected,selected,count);
+ const snapshotAspect=snapshot.width/snapshot.height;for(let i=0;i<count;i++)data[i*4]*=aspect/snapshotAspect;
  decodeArray(snapshot.fade,fadeProgress,count);decodeArray(snapshot.fieldX,fieldX,GX*GY);decodeArray(snapshot.fieldY,fieldY,GX*GY);
  simTime=snapshot.simTime;boost=snapshot.boost;randomState=snapshot.randomState;vortexRandomState=snapshot.vortexRandomState;
  snapshot.vortices.forEach((v,i)=>{Object.assign(vortexMotion[i],v);centers[i*2]=v.x*aspect;centers[i*2+1]=v.y;});
@@ -534,7 +549,7 @@ function restoreSnapshot(snapshot){
 }
 
 function buildArtwork(){
- const config={params:{...params},aspect:frameAspect};
+ const config={params:{...params},layout:'fullscreen',speedVariation:{range:.30,minSeconds:4,maxSeconds:10}};
  const code=document.getElementById('app-script').textContent.replace(/<\/script/gi,'<\\/script');
  const html='<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Granular Flow</title><style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#171421}.stage{width:100%;height:100dvh;display:grid;place-items:center;overflow:hidden}.frame{position:relative;flex:none}canvas{width:100%;height:100%;display:block;touch-action:none;cursor:grab}#error{display:none;position:absolute;inset:20px;color:white;background:#222;padding:12px}</style></head><body><div class="stage"><section class="frame"><canvas id="canvas" aria-label="ドラッグして流れを作るアート"></canvas><div id="error" role="alert"></div></section></div><script>window.__ART_CONFIG__='+JSON.stringify(config)+';<'+ '/script><script id="app-script">'+code+'<'+ '/script></body></html>';
  const bytes=new Blob([html]).size;
@@ -544,7 +559,7 @@ function buildArtwork(){
 function exportArtwork(){
  const html=buildArtwork();
  download(new Blob([html],{type:'text/html;charset=utf-8'}),'granular-flow-'+Date.now()+'.html');
- document.querySelector('#notice').textContent='現在の設定・画角を固定したHTMLを保存しました。ドラッグ操作は残ります。';
+ document.querySelector('#notice').textContent='全画面表示・速度±30％変動のHTMLを保存しました。ドラッグ操作は残ります。';
 }
 let noticeTimer;
 if(!publicMode){
@@ -556,7 +571,7 @@ if(!publicMode){
  simTime=0;boost=0;drag=null;donor=0;densityDirty=false;
  Object.assign(spoon,{x:0,y:0,vx:0,vy:0,pendingX:0,pendingY:0});
  fieldX.fill(0);fieldY.fill(0);centers.fill(0);selected.fill(0);
- frameAspect=1;document.querySelector('#aspect').value='1:1';fitFrame();resize();
+ fitFrame();resize();
  seedParticles();paused=false;last=performance.now();fpsTime=last;frames=0;
  clearTimeout(noticeTimer);document.querySelector('#notice').textContent='';render();
  };
@@ -604,7 +619,7 @@ async function startRecording(){
  if(recording)return;
  const notice=document.querySelector('#notice');
  if(!window.VideoEncoder||!window.VideoFrame){notice.textContent='高品質書き出しにはWebCodecs対応ブラウザーが必要です。Chromeなどで開いてください。';return;}
- const output=document.createElement('canvas');output.width=1024;output.height=Math.round(1024/frameAspect/2)*2;
+ const output=document.createElement('canvas');output.width=1024;output.height=Math.round(1024/(cssWidth/cssHeight)/2)*2;
  const session={output,chunks:[],failure:''};recording=session;lockRecordingControls(true);
  const oldWidth=canvas.width,oldHeight=canvas.height,oldRatio=ratio;
  let encoder;
@@ -622,7 +637,7 @@ async function startRecording(){
  if(densityDirty){configureDensity();densityDirty=false;}
  for(let i=0;i<900;i++){
  if(session.failure)throw Error(session.failure);
- if(i){const dt=1/60;simTime+=dt*params.speed*.25;boost*=Math.exp(-dt*.5);updateField(dt);advect(dt);replenish();}
+ if(i){const dt=1/60;advanceSpeed(dt);simTime+=dt*effectiveSpeed()*.25;boost*=Math.exp(-dt*.5);updateField(dt);advect(dt);replenish();}
  render();
  const frame=new VideoFrame(output,{timestamp:Math.round(i*1000000/60),duration:Math.round((i+1)*1000000/60)-Math.round(i*1000000/60)});
  try{encoder.encode(frame,{keyFrame:i%120===0});}finally{frame.close();}
@@ -643,7 +658,7 @@ function animate(now){
  if(!document.hidden&&!recording){
  if(densityDirty){configureDensity();densityDirty=false;}
  if(!paused){
- simTime+=dt*params.speed*.25;boost*=Math.exp(-dt*.5);updateField(dt);
+ advanceSpeed(dt);simTime+=dt*effectiveSpeed()*.25;boost*=Math.exp(-dt*.5);updateField(dt);
  // One persistent integration pass; density accounting and upload packing share it.
  advect(dt);replenish();needsDraw=true;
  }
