@@ -3,6 +3,9 @@
 <style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#171421}canvas{display:block;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none}#error{display:none;position:fixed;inset:20px;padding:20px;color:white;background:#222;font:14px system-ui;pointer-events:none}</style></head>
 <body><canvas id="canvas" aria-label="自動的に色と流れが変わる、指で触れる粒のアート"></canvas><div id="error" role="alert"></div><script id="app-script">
 'use strict';
+// Production defaults promoted from Namecard performance test 7.
+const testResolution=1,testDensity=1;
+const optimizedProcessing=true,splitSimulation=false,depthRequested=true,bitsetCulling=true;
 // Full-coverage sphere-impostor rendering. This is an artistic flow field,
 // not a Navier–Stokes simulation. New particles fade in over 1.2 seconds using alpha blending.
 const definitions=[
@@ -60,11 +63,22 @@ function start(){
 // Viscosity damps velocity, never displacement; there are no rest positions.
 const DOMAIN=1.5;
 const GX=80,GY=60,fieldX=new Float32Array(GX*GY),fieldY=new Float32Array(GX*GY);
-const MAX_PARTICLES=650000;
+const MAX_PARTICLES=Math.floor(650000*testDensity);
 const data=new Float32Array(MAX_PARTICLES*4),drawData=new Float32Array(MAX_PARTICLES*5);
 const selected=new Uint8Array(MAX_PARTICLES);
 const fadeProgress=new Float32Array(MAX_PARTICLES);
 const FADE_SECONDS=1.2;
+// Experimental fixed-rate simulation; the current renderer remains the default.
+const SIM_STEP=1/30;
+const previousPose=splitSimulation?new Float32Array(MAX_PARTICLES*3):null;
+let simulationAccumulator=0,simulationSteps=0,droppedSimulationSeconds=0,interpolationAlpha=0;
+function resetInterpolation(){
+ if(!splitSimulation)return;
+ simulationAccumulator=0;interpolationAlpha=0;
+ for(let i=0;i<count;i++){
+  const k=i*4,p=i*3;previousPose[p]=data[k];previousPose[p+1]=data[k+1];previousPose[p+2]=fadeProgress[i];
+ }
+}
 const offscreenDonors=new Uint32Array(MAX_PARTICLES);
 let offscreenDonorCount=0;
 let aspect=1,ratio=1,count=0,drawCount=0,simTime=0;
@@ -126,8 +140,8 @@ vec3 pigment(vec2 seed){
  return clamp(hsl(fract((hue+(seed.x-.5)*hueRange)/360.),saturation*.01,mix(lower,upper,seed.y))+balance*.0022,.012,.97);
 }
 `;
-const vertex=`attribute vec4 particle;attribute float opacity;varying float particleOpacity;uniform float aspect,size,grainVariation,birthSize;varying highp vec3 particlePigment;${colorCode}
-void main(){gl_Position=vec4(particle.x*2./aspect,particle.y*2.,0.,1.);// Stable per-particle variation: adjusting the slider never changes positions.
+const vertex=`attribute vec4 particle;attribute float opacity;attribute float layerDepth;varying float particleOpacity;uniform float aspect,size,grainVariation,birthSize;varying highp vec3 particlePigment;${colorCode}
+void main(){gl_Position=vec4(particle.x*2./aspect,particle.y*2.,layerDepth,1.);// Stable per-particle variation: adjusting the slider never changes positions.
 float variation=grainVariation*.008;
 float sizeSeed=fract(particle.z*73.17+particle.w*19.31);
 float targetSize=max(1.,size*(1.+(sizeSeed*2.-1.)*variation));
@@ -167,7 +181,15 @@ float diffuse=dot(lightingSample.rg,weights),specular=dot(lightingSample.ba,weig
 linear=particlePigment*diffuse+vec3(specular);
 }
 gl_FragColor=vec4(pow(max(linear*exposure,vec3(.0001)),vec3(1./2.2)),particleOpacity);}`;
-const fragment=shadingCacheEnabled?cachedFragment:analyticFragment;
+// Material values are constant in this artwork. Expose them to the GLSL compiler
+// so it can fold uniform-only expressions and simplify the rim lighting.
+const fixedMaterialShader=true;
+const baseFragment=shadingCacheEnabled?cachedFragment:analyticFragment;
+function specializeMaterial(source){
+ const constants=['exposure','relief','roughness'].map(key=>'const float '+key+'='+Number(Math.fround(params[key])).toFixed(12)+';').join('');
+ return source.replace('uniform float exposure,relief,roughness;',constants);
+}
+const fragment=fixedMaterialShader?specializeMaterial(baseFragment):baseFragment;
 function createSphereLighting(size,relief,roughness){
  const pixels=new Uint8Array(size*size*4);
  const lightLength=Math.hypot(-.45,.6,1),lx=-.45/lightLength,ly=.6/lightLength,lz=1/lightLength;
@@ -205,11 +227,46 @@ const parameterKeys=Object.keys(params);
 const u={};for(const key of [...Object.keys(params),'balance','aspect','size','birthSize'])u[key]=gl.getUniformLocation(particles,key);
 const particleAttr=gl.getAttribLocation(particles,'particle');
 const opacityAttr=gl.getAttribLocation(particles,'opacity');
+const depthAttr=gl.getAttribLocation(particles,'layerDepth');
+const depthBits=gl.getParameter(gl.DEPTH_BITS);
+const depthAvailable=depthBits>=24;
+let depthData=null,opaqueCount=0;
+function packDepthParticles(){
+ if(!depthData)depthData=new Float32Array(MAX_PARTICLES*6);
+ let front=0,back=drawCount-1;
+ for(let i=drawCount-1;i>=0;i--){
+  const src=i*5,dst=(drawData[src+4]>=.34?front++:back--)*6;
+  for(let j=0;j<5;j++)depthData[dst+j]=drawData[src+j];
+  depthData[dst+5]=.99-i/Math.max(1,drawCount)*1.98;
+ }
+ opaqueCount=front;return depthData;
+}
 gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+
+
+// Float64 retains the same JS precision; rebuild only when aspect changes.
+const fieldGeometry={aspect:NaN,x:new Float64Array(GX),y:new Float64Array(GY),
+ wx:new Float64Array(GX),wy:new Float64Array(GY),dwx:new Float64Array(GX),dwy:new Float64Array(GY)};
+const fieldSpins=new Float64Array(4);
+const updateField=optimizedProcessing?updateFieldOptimized:updateFieldOriginal;
+const advect=advectOriginal;
+function refreshFieldGeometry(){
+ if(fieldGeometry.aspect===aspect)return;
+ const hx=aspect*DOMAIN*.5,hy=DOMAIN*.5;
+ for(let x=0;x<GX;x++){
+  const px=(x/(GX-1)-.5)*aspect*DOMAIN,ex=Math.max(0,1-(px/hx)*(px/hx));
+  fieldGeometry.x[x]=px;fieldGeometry.wx[x]=ex*ex;fieldGeometry.dwx[x]=-4*px*ex/(hx*hx);
+ }
+ for(let y=0;y<GY;y++){
+  const py=(y/(GY-1)-.5)*DOMAIN,ey=Math.max(0,1-(py/hy)*(py/hy));
+  fieldGeometry.y[y]=py;fieldGeometry.wy[y]=ey*ey;fieldGeometry.dwy[y]=-4*py*ey/(hy*hy);
+ }
+ fieldGeometry.aspect=aspect;
+}
 
 function configureDensity(){
  // Keep density independent of animated size: no grid rebuild or selection jumps.
- const step=Math.max(6*.70,Math.sqrt(cssWidth*cssHeight*DOMAIN*DOMAIN/400000));
+ const step=Math.max(6*.70,Math.sqrt(cssWidth*cssHeight*DOMAIN*DOMAIN/400000))/Math.sqrt(testDensity);
  nx=Math.max(1,Math.floor(cssWidth*DOMAIN/step));ny=Math.max(1,Math.floor(cssHeight*DOMAIN/step));
  if(occupancy.length!==nx*ny)occupancy=new Uint32Array(nx*ny);
 
@@ -219,14 +276,14 @@ function configureDensity(){
  for(let i=0;i<count;i++)selected[i]=i%stride===0?1:0;
  advect(0);needsDraw=true;
 }
-function replenish(){
+function replenish(budgetScale=1){
  // Fixed per-frame budgets: no full rescans or large allocations during playback.
  let added=0,donorChecks=0;
- for(let checks=0;checks<Math.min(4096,occupancy.length)&&added<256;checks++){
+ for(let checks=0;checks<Math.min(4096*budgetScale,occupancy.length)&&added<256*budgetScale;checks++){
  const c=(random()*occupancy.length)|0;if(occupancy[c])continue;
  let index=-1;
  // Reuse only particles entirely outside the viewport; keep at least one per cell.
- while(offscreenDonorCount>0&&donorChecks<4096){
+ while(offscreenDonorCount>0&&donorChecks<4096*budgetScale){
  donorChecks++;
  const candidate=offscreenDonors[--offscreenDonorCount],k=candidate*4;
  const x=Math.min(nx-1,Math.max(0,((data[k]/(aspect*DOMAIN)+.5)*nx)|0));
@@ -238,6 +295,8 @@ function replenish(){
  const k=index*4;
  data[k]=((c%nx+.35+random()*.3)/nx-.5)*aspect*DOMAIN;data[k+1]=((Math.floor(c/nx)+.35+random()*.3)/ny-.5)*DOMAIN;
  data[k+2]=random();data[k+3]=random();selected[index]=1;fadeProgress[index]=0;occupancy[c]++;added++;
+ // A recycled slot is a new grain; never interpolate from its old offscreen location.
+ if(splitSimulation){const prev=index*3;previousPose[prev]=data[k];previousPose[prev+1]=data[k+1];previousPose[prev+2]=0;}
  }
 }
 function seedParticles(){
@@ -259,12 +318,13 @@ function resize(){
  if(Math.abs(rect.width-cssWidth)<.5&&Math.abs(rect.height-cssHeight)<.5)return;
  clearDrag();
  const previousAspect=aspect;cssWidth=rect.width;cssHeight=rect.height;
- // Native FHD, including portrait; no adaptive resolution or particle thinning.
- ratio=Math.min(devicePixelRatio||1,1920/Math.max(cssWidth,cssHeight),1080/Math.min(cssWidth,cssHeight));
+ // Test resolution multiplier applied to the original FHD limit.
+ ratio=Math.min(devicePixelRatio||1,1920/Math.max(cssWidth,cssHeight),1080/Math.min(cssWidth,cssHeight))*testResolution;
  canvas.width=Math.max(1,Math.round(cssWidth*ratio));canvas.height=Math.max(1,Math.round(cssHeight*ratio));aspect=cssWidth/cssHeight;
  for(let i=0;i<count;i++)data[i*4]*=aspect/previousAspect;
  gl.viewport(0,0,canvas.width,canvas.height);
  if(count)configureDensity();else seedParticles();
+ resetInterpolation();
 }
 new ResizeObserver(resize).observe(canvas);resize();
 function location(e){const r=canvas.getBoundingClientRect();return{x:(e.clientX-r.left-r.width/2)/r.height,y:(r.height/2-e.clientY+r.top)/r.height};}
@@ -289,7 +349,7 @@ canvas.addEventListener('pointermove',e=>{
 for(const name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,e=>{if(drag&&drag.id===e.pointerId)clearDrag();});
 for(const name of ['pointerup','pointercancel'])window.addEventListener(name,e=>{if(drag&&drag.id===e.pointerId)clearDrag();},true);
 window.addEventListener('blur',clearDrag);
-function updateField(dt,initialize=false){
+function updateFieldOriginal(dt,initialize=false){
  const ease=1-Math.exp(-dt*12);
  const vx=spoon.pendingX/Math.max(dt,.001),vy=spoon.pendingY/Math.max(dt,.001);
  const speed=Math.hypot(vx,vy),scale=Math.min(1,1.6/Math.max(speed,.001));
@@ -318,7 +378,40 @@ function updateField(dt,initialize=false){
  const i=y*GX+x;fieldX[i]+=(ux-fieldX[i])*response;fieldY[i]+=(uy-fieldY[i])*response;
  }
 }
-function advect(dt){
+function updateFieldOptimized(dt,initialize=false){
+ const ease=1-Math.exp(-dt*12);
+ const vx=spoon.pendingX/Math.max(dt,.001),vy=spoon.pendingY/Math.max(dt,.001);
+ const speed=Math.hypot(vx,vy),scale=Math.min(1,1.6/Math.max(speed,.001));
+ spoon.vx+=(vx*scale-spoon.vx)*ease;spoon.vy+=(vy*scale-spoon.vy)*ease;spoon.pendingX=0;spoon.pendingY=0;
+ moveVortices(dt);
+ const ambient=params.speed*.085*(1+boost*.8)/(1+params.viscosity*.22);
+ const response=initialize?1:1-Math.exp(-dt/(.13+params.viscosity*.20));
+ const radius=Math.max(.18,Math.min(aspect,1)*.40),r2=radius*radius;
+ refreshFieldGeometry();
+ for(let j=0;j<4;j++)fieldSpins[j]=vortexMotion[j].spin*ambient*(.5+params.fold*.5);
+ const geom=fieldGeometry;
+ for(let y=0;y<GY;y++){
+ const py=geom.y[y],wy=geom.wy[y],dwy=geom.dwy[y];
+ for(let x=0;x<GX;x++){
+ const px=geom.x[x];let ux=0,uy=0,stream=0;
+ for(let j=0;j<4;j++){const dx=px-centers[j*2],dy=py-centers[j*2+1];const weight=Math.exp(-(dx*dx+dy*dy)/(2*r2));const spin=fieldSpins[j];ux+=-dy/radius*weight*spin;uy+=dx/radius*weight*spin;stream+=spin*radius*weight;}
+ // Stream-function dipole: fluid ahead follows the rod, with circulation around
+ // both sides. This drives VELOCITY and keeps advected positions after release.
+ const dx=px-spoon.x,dy=py-spoon.y,rr=.13*.13;
+ const envelope=Math.exp(-(dx*dx+dy*dy)/(2*rr));
+ const psi=spoon.vx*dy-spoon.vy*dx;
+ ux+=(spoon.vx-dy*psi/rr)*envelope*1.9;
+ uy+=(spoon.vy+dx*psi/rr)*envelope*1.9;
+ stream+=psi*envelope*1.9;
+ // Taper the stream function only at the OUTER reservoir wall. Its derivatives
+ // turn the flow smoothly, so particles can leave the viewport and curl back.
+ const wx=geom.wx[x],dwx=geom.dwx[x];
+ ux=ux*wx*wy+stream*wx*dwy;uy=uy*wx*wy-stream*dwx*wy;
+ const i=y*GX+x;fieldX[i]+=(ux-fieldX[i])*response;fieldY[i]+=(uy-fieldY[i])*response;
+ }
+}
+}
+function advectOriginal(dt){
  occupancy.fill(0);drawCount=0;offscreenDonorCount=0;
  const width=aspect*DOMAIN,height=DOMAIN;
  const sx=(GX-1)/width,sy=(GY-1)/height,half=width*.5;
@@ -352,6 +445,56 @@ function advect(dt){
  drawData[out+4]=fadeProgress[i];
  }
 }
+function simulateParticles(dt){
+ occupancy.fill(0);drawCount=0;offscreenDonorCount=0;
+ const width=aspect*DOMAIN,height=DOMAIN;
+ const sx=(GX-1)/width,sy=(GY-1)/height,half=width*.5;
+ const fadeStep=dt/FADE_SECONDS,cellScaleX=nx/width,cellScaleY=ny/height;
+ const cellOffsetX=nx*.5,cellOffsetY=ny*.5;
+ const margin=params.grain*(1+params.grainVariation*.008)/cssHeight;
+ const visibleX=aspect*.5+margin,visibleY=.5+margin;
+ // Guard for the largest future grain, not just its current animated diameter.
+ const recycleMargin=20*1.8/cssHeight;
+ const recycleX=aspect*.5+recycleMargin,recycleY=.5+recycleMargin;
+ for(let i=0;i<count;i++){
+ const k=i*4,p=i*3;
+ previousPose[p]=data[k];previousPose[p+1]=data[k+1];previousPose[p+2]=fadeProgress[i];
+ if(fadeProgress[i]<1)fadeProgress[i]=Math.min(1,fadeProgress[i]+fadeStep);
+ const gx=Math.max(0,Math.min(GX-1.00001,(data[k]+half)*sx)),gy=Math.max(0,Math.min(GY-1.00001,(data[k+1]+height*.5)*sy));
+ const x=gx|0,y=gy|0,fx=gx-x,fy=gy-y,f=y*GX+x;
+ const ux=(fieldX[f]*(1-fx)+fieldX[f+1]*fx)*(1-fy)+(fieldX[f+GX]*(1-fx)+fieldX[f+GX+1]*fx)*fy;
+ const uy=(fieldY[f]*(1-fx)+fieldY[f+1]*fx)*(1-fy)+(fieldY[f+GX]*(1-fx)+fieldY[f+GX+1]*fx)*fy;
+ let px=data[k]+ux*dt,py=data[k+1]+uy*dt;
+ // Never wrap or reflect at the viewport edge; hidden positions remain alive.
+ // Numerical safety at the distant, no-through-flow reservoir wall only.
+ px=Math.max(-half+1e-6,Math.min(half-1e-6,px));
+ py=Math.max(-height*.5+1e-6,Math.min(height*.5-1e-6,py));
+ data[k]=px;data[k+1]=py;
+ if(!selected[i])continue;
+ const cx=Math.max(0,Math.min(nx-1,(px*cellScaleX+cellOffsetX)|0)),cy=Math.max(0,Math.min(ny-1,(py*cellScaleY+cellOffsetY)|0));occupancy[cy*nx+cx]++;
+ if(Math.abs(px)>visibleX||Math.abs(py)>visibleY){
+ if(Math.abs(px)>recycleX||Math.abs(py)>recycleY)offscreenDonors[offscreenDonorCount++]=i;
+ continue;
+ }
+
+ }
+}
+
+function packInterpolatedParticles(alpha){
+ drawCount=0;
+ const margin=params.grain*(1+params.grainVariation*.008)/cssHeight;
+ const visibleX=aspect*.5+margin,visibleY=.5+margin;
+ for(let i=0;i<count;i++){
+  if(!selected[i])continue;
+  const k=i*4,p=i*3;
+  const px=previousPose[p]+(data[k]-previousPose[p])*alpha;
+  const py=previousPose[p+1]+(data[k+1]-previousPose[p+1])*alpha;
+  if(Math.abs(px)>visibleX||Math.abs(py)>visibleY)continue;
+  const out=drawCount++*5;
+  drawData[out]=px;drawData[out+1]=py;drawData[out+2]=data[k+2];drawData[out+3]=data[k+3];
+  drawData[out+4]=previousPose[p+2]+(fadeProgress[i]-previousPose[p+2])*alpha;
+ }
+}
 function backgroundColor(){
  const h=((params.hue%360)+360)%360/360,s=params.saturation*.0065;
  const l=Math.max(.12,Math.min(.70,params.lightness*.01-.10));
@@ -363,6 +506,18 @@ function backgroundColor(){
 // Only fully opaque disks whose entire tile is safely inside can hide other grains.
 const occlusionMode=new URLSearchParams(window.location?.search||'').get('occlusion');
 const occlusionEnabled=occlusionMode!=='0';
+const overlapAwareOcclusion=new URLSearchParams(window.location?.search||'').get('autoPolicy')!=='original';
+// Keep the existing large-grain path. Add a separate dense-overlap path.
+// Different entry/exit thresholds avoid rapid ON/OFF switching at the boundary.
+function nextOcclusionState(active,diameter,overlap,overlapAware){
+ if(!overlapAware){
+  if(diameter>=18&&overlap>=4)return true;
+  if(diameter<16||overlap<3)return false;
+  return active;
+ }
+ if(active)return (diameter>=16&&overlap>=3)||(diameter>=12&&overlap>=4.5);
+ return (diameter>=18&&overlap>=4)||(diameter>=14&&overlap>=6);
+}
 let occlusionActive=false;
 let estimatedOverlap=0,estimatedDiameter=0;
 function shouldCullParticles(grain){
@@ -384,17 +539,50 @@ function shouldCullParticles(grain){
  if(!occlusionEnabled)return false;
  if(occlusionMode==='legacy')return grain>=12;
  // Physical pixels and estimated disk coverage, with separate on/off thresholds.
- if(estimatedDiameter>=18&&estimatedOverlap>=4)occlusionActive=true;
- else if(estimatedDiameter<16||estimatedOverlap<3)occlusionActive=false;
+ occlusionActive=nextOcclusionState(occlusionActive,estimatedDiameter,estimatedOverlap,overlapAwareOcclusion);
  return occlusionActive;
 }
 const occlusionKeep=new Uint8Array(MAX_PARTICLES);
 const culledData=new Float32Array(MAX_PARTICLES*5);
 let coverage=new Uint8Array(0),coverageWidth=0,coverageHeight=0;
 const COVER_TILE=8;
-function cullHiddenParticles(){
+let coverageLeft=new Float64Array(0),coverageRight=new Float64Array(0),coverageBottom=new Float64Array(0),coverageTop=new Float64Array(0);
+let coveragePixelWidth=0,coveragePixelHeight=0;
+function refreshCoverageBounds(cols,rows){
+ if(coveragePixelWidth===canvas.width&&coveragePixelHeight===canvas.height)return;
+ coveragePixelWidth=canvas.width;coveragePixelHeight=canvas.height;
+ coverageLeft=new Float64Array(cols);coverageRight=new Float64Array(cols);
+ coverageBottom=new Float64Array(rows);coverageTop=new Float64Array(rows);
+ for(let x=0;x<cols;x++){coverageLeft[x]=x*COVER_TILE;coverageRight[x]=Math.min(canvas.width,(x+1)*COVER_TILE);}
+ for(let y=0;y<rows;y++){coverageBottom[y]=y*COVER_TILE;coverageTop[y]=Math.min(canvas.height,(y+1)*COVER_TILE);}
+}
+
+// One bit per covered tile. No stale-frame reuse: rebuilt from current positions.
+let coverageBits=new Uint32Array(0),coverageWordWidth=0,coverageBitHeight=0;
+function coveredSpan(row,left,right){
+ const first=left>>>5,last=right>>>5;
+ const leftMask=-1<<(left&31),rightMask=(-1>>>(31-(right&31)))|0;
+ if(first===last){const mask=leftMask&rightMask;return (coverageBits[row+first]&mask)===mask;}
+ if((coverageBits[row+first]&leftMask)!==leftMask||(coverageBits[row+last]&rightMask)!==rightMask)return false;
+ for(let word=first+1;word<last;word++)if(coverageBits[row+word]!==0xffffffff)return false;
+ return true;
+}
+function coverSpan(row,left,right){
+ const first=left>>>5,last=right>>>5;
+ const leftMask=-1<<(left&31),rightMask=(-1>>>(31-(right&31)))|0;
+ if(first===last){coverageBits[row+first]|=leftMask&rightMask;return;}
+ coverageBits[row+first]|=leftMask;coverageBits[row+last]|=rightMask;
+ for(let word=first+1;word<last;word++)coverageBits[row+word]=0xffffffff;
+}
+function tileInside(x,cx,dy2,r2){
+ const dx=Math.max(Math.abs(coverageLeft[x]-cx),Math.abs(coverageRight[x]-cx));
+ return dx*dx+dy2<r2;
+}
+function cullHiddenParticles(){return bitsetCulling?cullHiddenParticlesBits():cullHiddenParticlesLegacy();}
+function cullHiddenParticlesLegacy(){
  const cols=Math.ceil(canvas.width/COVER_TILE),rows=Math.ceil(canvas.height/COVER_TILE);
  if(cols!==coverageWidth||rows!==coverageHeight){coverageWidth=cols;coverageHeight=rows;coverage=new Uint8Array(cols*rows);}else coverage.fill(0);
+ if(optimizedProcessing)refreshCoverageBounds(cols,rows);
  const variation=params.grainVariation*.008,base=params.grain*ratio,birth=2*ratio;
  for(let i=drawCount-1;i>=0;i--){
  const k=i*5,px=drawData[k],py=drawData[k+1];occlusionKeep[i]=1;
@@ -416,95 +604,222 @@ function cullHiddenParticles(){
  if(age<1/3||uncertain)continue;
  const inner=Math.max(0,pointSize*.5-1),r2=inner*inner;
  for(let y=y0;y<=y1;y++){
- const dy=Math.max(Math.abs(y*COVER_TILE-cy),Math.abs(Math.min(canvas.height,(y+1)*COVER_TILE)-cy));
+ const dy=optimizedProcessing?Math.max(Math.abs(coverageBottom[y]-cy),Math.abs(coverageTop[y]-cy)):Math.max(Math.abs(y*COVER_TILE-cy),Math.abs(Math.min(canvas.height,(y+1)*COVER_TILE)-cy));
  if(dy>=inner)continue;
  for(let x=x0;x<=x1;x++){
  const cell=y*cols+x;if(coverage[cell])continue;
- const dx=Math.max(Math.abs(x*COVER_TILE-cx),Math.abs(Math.min(canvas.width,(x+1)*COVER_TILE)-cx));
+ const dx=optimizedProcessing?Math.max(Math.abs(coverageLeft[x]-cx),Math.abs(coverageRight[x]-cx)):Math.max(Math.abs(x*COVER_TILE-cx),Math.abs(Math.min(canvas.width,(x+1)*COVER_TILE)-cx));
  if(dx*dx+dy*dy<r2)coverage[cell]=1;
  }
  }
  }
  let kept=0;
+ if(optimizedProcessing){
+ for(let i=0;i<drawCount;i++)if(occlusionKeep[i]){
+ const from=i*5,to=kept++*5;
+ culledData[to]=drawData[from];culledData[to+1]=drawData[from+1];
+ culledData[to+2]=drawData[from+2];culledData[to+3]=drawData[from+3];culledData[to+4]=drawData[from+4];
+ }
+ }else{
  for(let i=0;i<drawCount;i++)if(occlusionKeep[i]){const from=i*5,to=kept++*5;for(let j=0;j<5;j++)culledData[to+j]=drawData[from+j];}
+ }
+ return kept;
+}
+function cullHiddenParticlesBits(){
+ const cols=Math.ceil(canvas.width/COVER_TILE),rows=Math.ceil(canvas.height/COVER_TILE);
+ const words=Math.ceil(cols/32);
+ if(words!==coverageWordWidth||rows!==coverageBitHeight){coverageWordWidth=words;coverageBitHeight=rows;coverageBits=new Uint32Array(words*rows);}else coverageBits.fill(0);
+ refreshCoverageBounds(cols,rows);
+ const variation=params.grainVariation*.008,base=params.grain*ratio,birth=2*ratio;
+ for(let i=drawCount-1;i>=0;i--){
+ const k=i*5,px=drawData[k],py=drawData[k+1];occlusionKeep[i]=1;
+ // WebGL clips point primitives by their center, so offscreen centers cannot occlude.
+ if(Math.abs(px)>aspect*.5||Math.abs(py)>.5)continue;
+ const cx=(px/aspect+.5)*canvas.width,cy=(py+.5)*canvas.height;
+ const raw=drawData[k+2]*73.17+drawData[k+3]*19.31,seed=raw-Math.floor(raw);
+ // Account conservatively for GPU rounding near the fract discontinuity.
+ const uncertain=seed<.0001||seed>.9999;
+ const target=Math.max(1,base*(1+(seed*2-1)*variation));
+ const age=drawData[k+4],t=Math.max(0,Math.min(1,(age-1/3)*1.5)),growth=t*t*(3-2*t);
+ const pointSize=Math.min(birth,target)+(target-Math.min(birth,target))*growth;
+ const outer=(uncertain?Math.max(1,base*(1+variation)):pointSize)*.5+1;
+ const x0=Math.max(0,Math.floor((cx-outer)/COVER_TILE)),x1=Math.min(cols-1,Math.floor((cx+outer)/COVER_TILE));
+ const y0=Math.max(0,Math.floor((cy-outer)/COVER_TILE)),y1=Math.min(rows-1,Math.floor((cy+outer)/COVER_TILE));
+ let hidden=true;
+ for(let y=y0;y<=y1&&hidden;y++)if(!coveredSpan(y*words,x0,x1)){hidden=false;break;}
+ if(hidden){occlusionKeep[i]=0;continue;}
+ if(age<1/3||uncertain)continue;
+ const inner=Math.max(0,pointSize*.5-1),r2=inner*inner;
+ // Small disks touch few tiles: exact direct tests avoid square-root/span setup.
+ if(pointSize<40){
+ for(let y=y0;y<=y1;y++){
+  const row=y*words,dy=Math.max(Math.abs(coverageBottom[y]-cy),Math.abs(coverageTop[y]-cy));
+  if(dy>=inner)continue;
+  for(let x=x0;x<=x1;x++){
+   const word=row+(x>>>5),mask=1<<(x&31);
+   if(coverageBits[word]&mask)continue;
+   const dx=Math.max(Math.abs(coverageLeft[x]-cx),Math.abs(coverageRight[x]-cx));
+   if(dx*dx+dy*dy<r2)coverageBits[word]|=mask;
+  }
+ }
+ }else for(let y=y0;y<=y1;y++){
+ const row=y*words;
+ if(coveredSpan(row,x0,x1))continue;
+ const dy=Math.max(Math.abs(coverageBottom[y]-cy),Math.abs(coverageTop[y]-cy));
+ if(dy>=inner)continue;
+ const dy2=dy*dy,reach=Math.sqrt(r2-dy2);
+ // Start outside the candidate span, then use the ORIGINAL strict circle test
+ // at both ends. The circle is convex, so every tile in between is also inside.
+ let left=Math.max(x0,Math.floor((cx-reach)/COVER_TILE)-1);
+ let right=Math.min(x1,Math.floor((cx+reach)/COVER_TILE)+1);
+ while(left<=right&&!tileInside(left,cx,dy2,r2))left++;
+ while(right>=left&&!tileInside(right,cx,dy2,r2))right--;
+ if(left<=right)coverSpan(row,left,right);
+ }
+
+ }
+ let kept=0;
+ if(optimizedProcessing){
+ for(let i=0;i<drawCount;i++)if(occlusionKeep[i]){
+ const from=i*5,to=kept++*5;
+ culledData[to]=drawData[from];culledData[to+1]=drawData[from+1];
+ culledData[to+2]=drawData[from+2];culledData[to+3]=drawData[from+3];culledData[to+4]=drawData[from+4];
+ }
+ }else{
+ for(let i=0;i<drawCount;i++)if(occlusionKeep[i]){const from=i*5,to=kept++*5;for(let j=0;j<5;j++)culledData[to+j]=drawData[from+j];}
+ }
  return kept;
 }
 // Opt-in diagnostics: no overlay or timings in ordinary viewing mode.
 // Update this release identifier whenever the published artwork changes.
-const ART_VERSION='2026.09.21-r2';
+const ART_VERSION='flow-9999-20260927-r7';
 const meterEnabled=new URLSearchParams(window.location?.search||'').get('debug')==='1';
 const meter=meterEnabled?document.createElement('pre'):null;
+// Bounded rolling history: no per-frame object/array allocation for statistics.
+const frameHistoryTimes=new Float64Array(2048),frameHistoryMs=new Float32Array(2048);
+let frameHistoryCursor=0,frameHistoryCount=0;
+function recordFrameInterval(now,ms){
+ frameHistoryTimes[frameHistoryCursor]=now;frameHistoryMs[frameHistoryCursor]=ms;
+ frameHistoryCursor=(frameHistoryCursor+1)%2048;frameHistoryCount=Math.min(2048,frameHistoryCount+1);
+}
+function recentFrameStats(now){
+ const values=[];let overBudget=0;
+ for(let n=0;n<frameHistoryCount;n++){
+  const i=(frameHistoryCursor-1-n+2048)%2048;if(now-frameHistoryTimes[i]>10000)break;
+  const ms=frameHistoryMs[i];values.push(ms);if(ms>1000/35)overBudget++;
+ }
+ values.sort((a,b)=>a-b);return {count:values.length,p95:values[Math.ceil(values.length*.95)-1]||0,max:values[values.length-1]||0,overBudget};
+}
 const meterState={frames:0,elapsed:0,lastUpdate:0,cpu:0,cull:0,submitted:0,culling:false,previous:null,slow:null};
 if(meter){
  meter.setAttribute('aria-label','描画診断メーター');
  meter.style.cssText='position:fixed;left:8px;top:max(8px,env(safe-area-inset-top));z-index:10;margin:0;padding:10px;border-radius:8px;background:#080b12df;color:#b6fff1;font:11px/1.5 ui-monospace,monospace;pointer-events:none;max-width:calc(100vw - 16px);white-space:pre-wrap';
- meter.textContent=`Flow 9999 | v${ART_VERSION}\n計測を開始しています…`;document.body.append(meter);
+ meter.textContent=`FLOW 9999 | v${ART_VERSION} | ${optimizedProcessing?'改善版':'従来版'}\n計測を開始しています…`;document.body.append(meter);
 }
 function updateMeter(now,frameMs){
  if(!meter)return;
  if(frameMs>0&&frameMs<2000){
- meterState.frames++;meterState.elapsed+=frameMs;
- if(frameMs>=40&&meterState.previous)meterState.slow={...meterState.previous,frameMs,time:now};
+ meterState.frames++;meterState.elapsed+=frameMs;recordFrameInterval(now,frameMs);
+ if(frameMs>1000/35&&meterState.previous)meterState.slow={...meterState.previous,frameMs,time:now};
  }
- meterState.previous={speed:params.speed,fold:params.fold,grain:params.grain,viscosity:params.viscosity,cpu:meterState.cpu,cull:meterState.cull,culling:meterState.culling};
+ meterState.previous={overlap:estimatedOverlap,diameter:estimatedDiameter,speed:params.speed,fold:params.fold,grain:params.grain,viscosity:params.viscosity,cpu:meterState.cpu,cull:meterState.cull,culling:meterState.culling};
  if(now-meterState.lastUpdate<300)return;
  const fps=meterState.elapsed?meterState.frames*1000/meterState.elapsed:0;
  const avg=meterState.frames?meterState.elapsed/meterState.frames:0;
- const slow=meterState.slow;
- meter.textContent=`Flow 9999 | v${ART_VERSION}
+ const slow=meterState.slow;const recent=recentFrameStats(now);
+ meter.textContent=`FLOW 9999 | v${ART_VERSION} | ${optimizedProcessing?'改善版':'従来版'}
+計算 ${splitSimulation?'30Hz＋補間（実験）':'毎描画（現行）'}
 FPS ${fps.toFixed(1)} | 平均間隔 ${avg.toFixed(1)} ms
+直近10秒：P95 ${recent.p95.toFixed(1)} ms / 最長 ${recent.max.toFixed(1)} ms
+35FPS相当を下回る間隔 ${recent.overBudget} / ${recent.count} 回
 直近間隔 ${frameMs.toFixed(1)} ms | JS処理 ${meterState.cpu.toFixed(1)} ms
-隠れ判定 ${meterState.culling?'ON':'OFF'} / ${meterState.cull.toFixed(1)} ms
+隠れ判定：${occlusionEnabled?'自動（'+(occlusionMode==='legacy'?'旧式':overlapAwareOcclusion?'新条件':'従来条件')+'）':'設定OFF'}
+陰影 ${fixedMaterialShader?'固定値で最適化':'従来'}
+描画 ${depthRequested?(depthAvailable?'GPU判定（実験）':'CPUへ復帰：深度不足'):'CPU判定'}
+CPU判定 ${bitsetCulling?'まとめて判定（新）':'従来'} / 現在 ${meterState.culling?'ON':'OFF'} / ${meterState.cull.toFixed(1)} ms${depthRequested&&depthAvailable?'（転送準備）':''}
 重なり推定 ${estimatedOverlap.toFixed(1)}倍 | 描画径 ${estimatedDiameter.toFixed(1)} px
 速度 ${params.speed.toFixed(2)} | 渦 ${params.fold.toFixed(2)}
 粘度 ${params.viscosity.toFixed(2)} | 粒径 ${params.grain.toFixed(2)} px
 粒数 ${count.toLocaleString()} | 画面付近 ${drawCount.toLocaleString()}
 描画 ${meterState.submitted.toLocaleString()} | 省略 ${(drawCount-meterState.submitted).toLocaleString()} (${(drawCount?100*(drawCount-meterState.submitted)/drawCount:0).toFixed(0)}%)
 解像度 ${canvas.width} × ${canvas.height} | 陰影最適化 ${shadingCacheEnabled?'ON':'OFF'}
-※ JS処理はGPU時間を含みません`;
+${splitSimulation?'補間による表示遅れ 約33ms / 計算 '+simulationSteps+'回 / 追従省略 '+droppedSimulationSeconds.toFixed(2)+'秒\n':''}※ JS処理はGPU時間を含みません`;
  if(slow)meter.textContent+=`
 直近の遅延：${slow.frameMs.toFixed(1)} ms（${Math.floor((now-slow.time)/1000)}秒前）
 速度 ${slow.speed.toFixed(2)} / 渦 ${slow.fold.toFixed(2)} / 粒径 ${slow.grain.toFixed(2)}
+重なり ${slow.overlap.toFixed(1)}倍 / 描画径 ${slow.diameter.toFixed(1)} px
 JS ${slow.cpu.toFixed(1)} ms / 判定 ${slow.culling?'ON':'OFF'} ${slow.cull.toFixed(1)} ms`;
  meterState.frames=0;meterState.elapsed=0;meterState.lastUpdate=now;
 }
 function render(){
  const cullStarted=meterEnabled?performance.now():0;
- const useOcclusion=shouldCullParticles(params.grain);
+ const useDepth=depthRequested&&depthAvailable;
+ const autoOcclusion=shouldCullParticles(params.grain);
+ const useOcclusion=!useDepth&&autoOcclusion;
  const submittedCount=useOcclusion?cullHiddenParticles():drawCount;
- const submittedData=useOcclusion?culledData:drawData;
+ const submittedData=useDepth?packDepthParticles():(useOcclusion?culledData:drawData);
+ const stride=useDepth?24:20,components=useDepth?6:5;
  if(meterEnabled){meterState.cull=performance.now()-cullStarted;meterState.culling=useOcclusion;meterState.submitted=submittedCount;}
  const bg=backgroundColor();gl.clearColor(bg[0],bg[1],bg[2],1);
- gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(particles);
+ gl.depthMask(true);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.useProgram(particles);
  for(const key of parameterKeys)if(u[key]!==null)gl.uniform1f(u[key],params[key]);
  gl.uniform3f(u.balance,params.red,params.green,params.blue);gl.uniform1f(u.aspect,aspect);gl.uniform1f(u.size,params.grain*ratio);gl.uniform1f(u.birthSize,2*ratio);
  const upload=uploadBuffers[uploadIndex];uploadIndex=(uploadIndex+1)%uploadBuffers.length;
  gl.bindBuffer(gl.ARRAY_BUFFER,upload.buffer);
- const requiredBytes=submittedCount*20;
+ const requiredBytes=submittedCount*stride;
  if(requiredBytes>upload.capacity){upload.capacity=Math.ceil(requiredBytes/65536)*65536;gl.bufferData(gl.ARRAY_BUFFER,upload.capacity,gl.DYNAMIC_DRAW);}
- gl.bufferSubData(gl.ARRAY_BUFFER,0,submittedData.subarray(0,submittedCount*5));
- gl.enableVertexAttribArray(particleAttr);gl.vertexAttribPointer(particleAttr,4,gl.FLOAT,false,20,0);
- gl.enableVertexAttribArray(opacityAttr);gl.vertexAttribPointer(opacityAttr,1,gl.FLOAT,false,20,16);gl.drawArrays(gl.POINTS,0,submittedCount);
+ gl.bufferSubData(gl.ARRAY_BUFFER,0,submittedData.subarray(0,submittedCount*components));
+ gl.enableVertexAttribArray(particleAttr);gl.vertexAttribPointer(particleAttr,4,gl.FLOAT,false,stride,0);
+ gl.enableVertexAttribArray(opacityAttr);gl.vertexAttribPointer(opacityAttr,1,gl.FLOAT,false,stride,16);
+ if(useDepth){
+  gl.enableVertexAttribArray(depthAttr);gl.vertexAttribPointer(depthAttr,1,gl.FLOAT,false,stride,20);
+  gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LESS);gl.disable(gl.BLEND);
+  gl.drawArrays(gl.POINTS,0,opaqueCount);
+  gl.enable(gl.BLEND);gl.depthMask(false);
+  gl.drawArrays(gl.POINTS,opaqueCount,submittedCount-opaqueCount);
+  gl.depthMask(true);gl.disable(gl.DEPTH_TEST);
+ }else{
+  gl.disableVertexAttribArray(depthAttr);gl.vertexAttrib1f(depthAttr,0);
+  gl.drawArrays(gl.POINTS,0,submittedCount);
+ }
 
  needsDraw=false;
 }
 let contextLost=false;canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();contextLost=true;fail('描画が中断されました。ページを再読み込みしてください。');});
-document.addEventListener('visibilitychange',()=>{if(meterEnabled){meterState.frames=0;meterState.elapsed=0;meterState.previous=null;}clearDrag();last=performance.now();spoon.pendingX=0;spoon.pendingY=0;});
-function animate(now){
- if(contextLost)return;
- const frameMs=now-last;
- const dt=Math.min(frameMs/1000,.025);last=now;
- const cpuStarted=meterEnabled?performance.now():0;
- if(!document.hidden){
+document.addEventListener('visibilitychange',()=>{if(meterEnabled){meterState.frames=0;meterState.elapsed=0;meterState.previous=null;meterState.slow=null;frameHistoryCount=0;frameHistoryCursor=0;}clearDrag();resetInterpolation();last=performance.now();spoon.pendingX=0;spoon.pendingY=0;});
+// One simulation step at most per display frame: no unbounded catch-up loop.
+function advanceFrame(frameMs,now){
+ const elapsed=Math.max(0,frameMs/1000);
+ const dt=Math.min(elapsed,.025);
  updateAutomation(dt*interactionMultiplier(now));
-
  if(!paused){
- simTime+=dt*params.speed*.25;boost*=Math.exp(-dt*.5);updateField(dt);
- // One persistent integration pass; density accounting and upload packing share it.
- advect(dt);replenish();needsDraw=true;
+  if(splitSimulation){
+   simulationAccumulator+=Math.min(elapsed,.1);
+   droppedSimulationSeconds+=Math.max(0,elapsed-.1);
+   if(simulationAccumulator+1e-9>=SIM_STEP){
+    const due=Math.floor((simulationAccumulator+1e-9)/SIM_STEP);
+    droppedSimulationSeconds+=Math.max(0,due-1)*SIM_STEP;
+    simulationAccumulator=Math.max(0,simulationAccumulator-due*SIM_STEP);
+    simTime+=SIM_STEP*params.speed*.25;boost*=Math.exp(-SIM_STEP*.5);
+    updateField(SIM_STEP);simulateParticles(SIM_STEP);replenish(2);simulationSteps++;
+   }
+   interpolationAlpha=Math.min(1,simulationAccumulator/SIM_STEP);
+   packInterpolatedParticles(interpolationAlpha);
+  }else{
+   simTime+=dt*params.speed*.25;boost*=Math.exp(-dt*.5);updateField(dt);
+   advect(dt);replenish();simulationSteps++;
+  }
+  needsDraw=true;
  }
  if(needsDraw)render();
- if(meterEnabled){meterState.cpu=performance.now()-cpuStarted;updateMeter(now,frameMs);}
+}
+function animate(now){
+ if(contextLost)return;
+ const frameMs=now-last;last=now;
+ const cpuStarted=meterEnabled?performance.now():0;
+ if(!document.hidden){
+  advanceFrame(frameMs,now);
+  if(meterEnabled){meterState.cpu=performance.now()-cpuStarted;updateMeter(now,frameMs);}
  }
  requestAnimationFrame(animate);
 }

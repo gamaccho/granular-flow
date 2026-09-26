@@ -122,8 +122,8 @@ vec3 pigment(vec2 seed){
  return clamp(hsl(fract((hue+(seed.x-.5)*hueRange)/360.),saturation*.01,mix(lower,upper,seed.y))+balance*.0022,.012,.97);
 }
 `;
-const vertex=`attribute vec4 particle;attribute float opacity;varying float particleOpacity;uniform float aspect,size,grainVariation,birthSize;varying highp vec3 particlePigment;${colorCode}
-void main(){gl_Position=vec4(particle.x*2./aspect,particle.y*2.,0.,1.);// Stable per-particle variation: adjusting the slider never changes positions.
+const vertex=`attribute vec4 particle;attribute float opacity;attribute float layerDepth;varying float particleOpacity;uniform float aspect,size,grainVariation,birthSize;varying highp vec3 particlePigment;${colorCode}
+void main(){gl_Position=vec4(particle.x*2./aspect,particle.y*2.,layerDepth,1.);// Stable per-particle variation: adjusting the slider never changes positions.
 float variation=grainVariation*.008;
 float sizeSeed=fract(particle.z*73.17+particle.w*19.31);
 float targetSize=max(1.,size*(1.+(sizeSeed*2.-1.)*variation));
@@ -184,7 +184,19 @@ function createSphereLighting(size,relief,roughness){
 }
 function compile(type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));return shader;}
 function program(v,f){const p=gl.createProgram();gl.attachShader(p,compile(gl.VERTEX_SHADER,v));gl.attachShader(p,compile(gl.FRAGMENT_SHADER,f));gl.linkProgram(p);if(!gl.getProgramParameter(p,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(p));return p;}
-const particles=program(vertex,fragment);
+// FLOW GPU release 20260927-r7: specialize only immutable published materials.
+function publishedMaterialShader(source){
+ if(!publicMode)return source;
+ const keys=['exposure','relief','roughness'];
+ return source.replace(/uniform float ([^;]+);/g,(declaration,names)=>{
+  const fields=names.split(',').map(s=>s.trim());
+  const constants=fields.filter(k=>keys.includes(k));
+  if(!constants.length)return declaration;
+  const remaining=fields.filter(k=>!keys.includes(k));
+  return (remaining.length?'uniform float '+remaining.join(',')+';':'')+constants.map(k=>'const float '+k+'='+Number(Math.fround(params[k])).toFixed(12)+';').join('');
+ });
+}
+const particles=program(vertex,publishedMaterialShader(fragment));
 let lightingRelief=-1,lightingRoughness=-1;
 const lightingTexture=shadingCacheEnabled?gl.createTexture():null;
 function updateLightingCache(){
@@ -203,6 +215,20 @@ const parameterKeys=Object.keys(params);
 const u={};for(const key of [...Object.keys(params),'balance','aspect','size','birthSize'])u[key]=gl.getUniformLocation(particles,key);
 const particleAttr=gl.getAttribLocation(particles,'particle');
 const opacityAttr=gl.getAttribLocation(particles,'opacity');
+const depthAttr=gl.getAttribLocation(particles,'layerDepth');
+const depthBits=gl.getParameter(gl.DEPTH_BITS);
+const depthAvailable=depthBits>=24;
+let depthData=null,opaqueCount=0;
+function packDepthParticles(){
+ if(!depthData)depthData=new Float32Array(MAX_PARTICLES*6);
+ let front=0,back=drawCount-1;
+ for(let i=drawCount-1;i>=0;i--){
+  const src=i*5,dst=(drawData[src+4]>=.34?front++:back--)*6;
+  for(let j=0;j<5;j++)depthData[dst+j]=drawData[src+j];
+  depthData[dst+5]=.99-i/Math.max(1,drawCount)*1.98;
+ }
+ opaqueCount=front;return depthData;
+}
 gl.enable(gl.BLEND);gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
 
 function configureDensity(){
@@ -437,20 +463,33 @@ function cullHiddenParticles(){
 }
 function render(){
  updateLightingCache();
- const useOcclusion=shouldCullParticles(params.grain);
+ const useDepth=depthAvailable;
+ const useOcclusion=!useDepth&&shouldCullParticles(params.grain);
  const submittedCount=useOcclusion?cullHiddenParticles():drawCount;
- const submittedData=useOcclusion?culledData:drawData;
+ const submittedData=useDepth?packDepthParticles():(useOcclusion?culledData:drawData);
+ const stride=useDepth?24:20,components=useDepth?6:5;
  const bg=backgroundColor();gl.clearColor(bg[0],bg[1],bg[2],1);
- gl.clear(gl.COLOR_BUFFER_BIT);gl.useProgram(particles);
+ gl.depthMask(true);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.useProgram(particles);
  for(const key of parameterKeys)if(u[key]!==null)gl.uniform1f(u[key],params[key]);
  gl.uniform3f(u.balance,params.red,params.green,params.blue);gl.uniform1f(u.aspect,aspect);gl.uniform1f(u.size,params.grain*ratio);gl.uniform1f(u.birthSize,2*ratio);
  const upload=uploadBuffers[uploadIndex];uploadIndex=(uploadIndex+1)%uploadBuffers.length;
  gl.bindBuffer(gl.ARRAY_BUFFER,upload.buffer);
- const requiredBytes=submittedCount*20;
+ const requiredBytes=submittedCount*stride;
  if(requiredBytes>upload.capacity){upload.capacity=Math.ceil(requiredBytes/65536)*65536;gl.bufferData(gl.ARRAY_BUFFER,upload.capacity,gl.DYNAMIC_DRAW);}
- gl.bufferSubData(gl.ARRAY_BUFFER,0,submittedData.subarray(0,submittedCount*5));
- gl.enableVertexAttribArray(particleAttr);gl.vertexAttribPointer(particleAttr,4,gl.FLOAT,false,20,0);
- gl.enableVertexAttribArray(opacityAttr);gl.vertexAttribPointer(opacityAttr,1,gl.FLOAT,false,20,16);gl.drawArrays(gl.POINTS,0,submittedCount);
+ gl.bufferSubData(gl.ARRAY_BUFFER,0,submittedData.subarray(0,submittedCount*components));
+ gl.enableVertexAttribArray(particleAttr);gl.vertexAttribPointer(particleAttr,4,gl.FLOAT,false,stride,0);
+ gl.enableVertexAttribArray(opacityAttr);gl.vertexAttribPointer(opacityAttr,1,gl.FLOAT,false,stride,16);
+ if(useDepth){
+  gl.enableVertexAttribArray(depthAttr);gl.vertexAttribPointer(depthAttr,1,gl.FLOAT,false,stride,20);
+  gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LESS);gl.disable(gl.BLEND);
+  gl.drawArrays(gl.POINTS,0,opaqueCount);
+  gl.enable(gl.BLEND);gl.depthMask(false);
+  gl.drawArrays(gl.POINTS,opaqueCount,submittedCount-opaqueCount);
+  gl.depthMask(true);gl.disable(gl.DEPTH_TEST);
+ }else{
+  gl.disableVertexAttribArray(depthAttr);gl.vertexAttrib1f(depthAttr,0);
+  gl.drawArrays(gl.POINTS,0,submittedCount);
+ }
 
  if(recording&&recording.context){const r=recording;r.context.drawImage(canvas,0,0,r.output.width,r.output.height);}
  needsDraw=false;
