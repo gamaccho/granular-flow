@@ -1,0 +1,38 @@
+/* Bounded directed graph routing. Coordinates derive from OpenStreetMap (ODbL). */
+(function(root){
+'use strict';
+class DriveRoute {
+ constructor(map,random=Math.random,signals=null){this.signals=signals;this.stops=[];this.map=map;this.random=random;this.adj=map.nodes.map(()=>[]);map.edges.forEach((e,i)=>this.adj[e.a].push(i));this.raw=[];this.points=[];this.destination=-1;this.visits=new Map();this.trips=0;this.lastEdge=-1;this.lastPlan=[];this.buildCirculation();const choices=[...this.circulation],total=choices.reduce((sum,i)=>sum+map.edges[i].l,0);let pick=random()*total;this.startEdge=choices.find(i=>(pick-=map.edges[i].l)<0)??choices.at(-1);this.end=map.edges[this.startEdge].a;this.ensure(0);const first=map.edges[this.startEdge];this.startS=Math.min(first.l*.65,Math.max(0,first.l-70))*random();}
+ buildCirculation(){const E=this.map.edges,M=this.map,p=M.projection,b=M.bounds,fx=111320*p.scale*Math.cos(p.lat*Math.PI/180),fy=111320*p.scale,minX=(b[1]-p.lon)*fx+18,maxX=(b[3]-p.lon)*fx-18,minY=(p.lat-b[2])*fy+18,maxY=(p.lat-b[0])*fy-18,safe=E.map(e=>e.p.every(q=>q[0]>=minX&&q[0]<=maxX&&q[1]>=minY&&q[1]<=maxY));
+  // State includes the incoming road: a reverse transition is impossible, not penalized.
+  this.transitions=E.map((a,index)=>!safe[index]?[]:this.adj[a.b].filter(i=>{if(!safe[i])return false;const b=E[i];if(b.b===a.a)return false;const p=a.p[a.p.length-2],q=a.p[a.p.length-1],r=b.p[1],dx=q[0]-p[0],dy=q[1]-p[1],ex=r[0]-b.p[0][0],ey=r[1]-b.p[0][1];return (dx*ex+dy*ey)/(Math.hypot(dx,dy)*Math.hypot(ex,ey)||1)>-.65;}));
+  const reverse=E.map(()=>[]);this.transitions.forEach((out,i)=>out.forEach(j=>reverse[j].push(i)));let seen=new Set(),order=[];
+  for(let i=0;i<E.length;i++){if(seen.has(i))continue;const stack=[[i,false]];while(stack.length){const [v,done]=stack.pop();if(done){order.push(v);continue;}if(seen.has(v))continue;seen.add(v);stack.push([v,true]);for(const w of this.transitions[v])if(!seen.has(w))stack.push([w,false]);}}
+  seen=new Set();let largest=[];for(const i of order.reverse()){if(seen.has(i))continue;const group=[],stack=[i];while(stack.length){const v=stack.pop();if(seen.has(v))continue;seen.add(v);group.push(v);for(const w of reverse[v])if(!seen.has(w))stack.push(w);}if(group.length>largest.length)largest=group;}
+  this.circulation=new Set(largest);this.transitions=this.transitions.map(out=>out.filter(i=>this.circulation.has(i)));
+  const ends=[...new Set(largest.map(i=>E[i].b))];this.destinations=ends;this.goals=this.map.labels.map(l=>ends.reduce((best,n)=>Math.hypot(...this.map.nodes[n].map((v,k)=>v-l.p[k]))<Math.hypot(...this.map.nodes[best].map((v,k)=>v-l.p[k]))?n:best,ends[0]));
+  if(largest.length<2)throw Error('No circulation route');
+ }
+ plan(){const M=this.map,E=M.edges;const here=M.nodes[this.end],distant=this.destinations.filter(n=>n!==this.end&&Math.hypot(M.nodes[n][0]-here[0],M.nodes[n][1]-here[1])>650),options=distant.length?distant:this.destinations.filter(n=>n!==this.end),next=options[Math.floor(this.random()*options.length)];const goal=next,n=E.length,dist=new Float64Array(n).fill(Infinity),prev=new Int32Array(n).fill(-1),done=new Uint8Array(n);
+  const costs=E.map((e,i)=>e.l*(.5+this.random()*1.6)*(e.w<30?1.25:1)*(1+Math.min(3,this.visits.get(i)||0)*.17));
+  const starts=this.lastEdge<0?[this.startEdge]:this.transitions[this.lastEdge];for(const i of starts)dist[i]=costs[i];let finish=-1;
+  // Search only the cyclic edge-state component, preserving no-U-turn at trip joins.
+  for(let z=0;z<n;z++){let u=-1,best=Infinity;for(let k=0;k<n;k++)if(!done[k]&&dist[k]<best){u=k;best=dist[k];}if(u<0)break;if(E[u].b===goal){finish=u;break;}done[u]=1;for(const i of this.transitions[u]){const alt=dist[u]+costs[i];if(alt<dist[i]){dist[i]=alt;prev[i]=u;}}}
+  if(finish<0)throw Error('No circulation path to district');const path=[];for(let i=finish;i>=0;i=prev[i])path.push(i);path.reverse();this.lastPlan=path;this.destination=next;
+  for(const i of path){const e=E[i];this.visits.set(i,(this.visits.get(i)||0)+1);for(let j=0;j<e.p.length;j++){const p=e.p[j],last=this.raw[this.raw.length-1];if(last&&Math.hypot(last.x-p[0],last.y-p[1])<.1)continue;this.raw.push({x:p[0],y:p[1],w:e.w,name:e.n,limit:e.w>=35?720:390,edge:i,node:j===e.p.length-1?e.b:-1,junction:j===e.p.length-1&&this.adj[e.b].length>2});}}
+  this.lastEdge=path[path.length-1];this.end=goal;this.trips++;this.smooth();
+ }
+ emit(x,y,meta){const old=this.points[this.points.length-1];const ds=old?Math.hypot(x-old.x,y-old.y):0;if(old&&ds<.02)return;this.points.push({x,y,s:old?old.s+ds:0,w:meta.w,name:meta.name,limit:meta.limit,edge:meta.edge});}
+ line(x,y,meta){const p=this.points[this.points.length-1];if(!p){this.emit(x,y,meta);return;}const dx=x-p.x,dy=y-p.y,l=Math.hypot(dx,dy),n=Math.max(1,Math.ceil(l/3));for(let i=1;i<=n;i++)this.emit(p.x+dx*i/n,p.y+dy*i/n,meta);}
+ smooth(){if(this.raw.length<3)return;if(!this.points.length)this.emit(this.raw[0].x,this.raw[0].y,this.raw[0]);
+  for(let i=1;i<this.raw.length-1;i++){const a=this.raw[i-1],b=this.raw[i],c=this.raw[i+1],ab=Math.hypot(b.x-a.x,b.y-a.y),bc=Math.hypot(c.x-b.x,c.y-b.y),r=Math.min(b.w*.3,14,ab*.35,bc*.35),p={x:b.x+(a.x-b.x)*r/ab,y:b.y+(a.y-b.y)*r/ab},q={x:b.x+(c.x-b.x)*r/bc,y:b.y+(c.y-b.y)*r/bc};this.line(p.x,p.y,b);if(b.node>=0&&this.signals?.approaches.has(b.edge)){const approach=this.signals.approaches.get(b.edge);let lineS=this.points.at(-1).s+r-approach.clearance,best=Infinity;for(let k=this.points.length-1;k>0;k--){const v=this.points[k],u=this.points[k-1];if(this.points.at(-1).s-v.s>approach.clearance+100)break;const dx=v.x-u.x,dy=v.y-u.y,t=Math.max(0,Math.min(1,((approach.stopPoint[0]-u.x)*dx+(approach.stopPoint[1]-u.y)*dy)/(dx*dx+dy*dy||1))),distance=Math.hypot(u.x+dx*t-approach.stopPoint[0],u.y+dy*t-approach.stopPoint[1]);if(distance<best){best=distance;lineS=u.s+(v.s-u.s)*t;}}if(best<6)this.stops.push({s:lineS-18,approach});}const turn=Math.acos(Math.max(-1,Math.min(1,((b.x-a.x)*(c.x-b.x)+(b.y-a.y)*(c.y-b.y))/(ab*bc))));const limit=b.junction&&turn<.2?Math.min(b.limit,540):b.limit,meta={...b,limit};for(let k=1;k<=16;k++){const t=k/16,u=1-t;this.emit(u*u*p.x+2*u*t*b.x+t*t*q.x,u*u*p.y+2*u*t*b.y+t*t*q.y,meta);}}
+  this.stops.sort((a,b)=>a.s-b.s);this.raw=this.raw.slice(-2);
+ }
+ ensure(s){this.stops=this.stops.filter(e=>e.s>=s-60);let guard=0;while((!this.points.length||this.points[this.points.length-1].s<s+1600)&&guard++<8)this.plan();if(this.points.length>3000){let cut=this.locate(s-60);if(cut>100)this.points.splice(0,cut);} }
+ locate(s){let lo=0,hi=this.points.length-1;while(lo+1<hi){const m=(lo+hi)>>1;if(this.points[m].s<=s)lo=m;else hi=m;}return lo;}
+ center(s){const i=this.locate(s),a=this.points[i],b=this.points[i+1]||a,t=Math.max(0,Math.min(1,(s-a.s)/(b.s-a.s||1)));return {x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,w:a.w,name:a.name,limit:a.limit};}
+ sample(s){const p=this.center(s),a=this.center(s-2),b=this.center(s+2),dx=b.x-a.x,dy=b.y-a.y,l=Math.hypot(dx,dy)||1,offset=Math.min(7,p.w*.18);return {...p,x:p.x+dy/l*offset,y:p.y-dx/l*offset,angle:Math.atan2(dy,dx)+Math.PI/2};}
+ target(s){let target=720;const first=this.locate(s);for(let i=first;i<this.points.length-8;i+=4){const p=this.points[i],ahead=p.s-s;if(ahead>1100)break;const a=this.points[Math.max(0,i-3)],b=this.points[Math.min(this.points.length-1,i+3)],dx=p.x-a.x,dy=p.y-a.y,ex=b.x-p.x,ey=b.y-p.y,turn=Math.abs(Math.atan2(dx*ey-dy*ex,dx*ex+dy*ey)),curvature=turn/Math.max(1,(b.s-a.s)/2),corner=Math.max(85,Math.sqrt(260/Math.max(.0001,curvature))),limit=Math.min(p.limit,corner);target=Math.min(target,Math.sqrt(limit*limit+2*390*Math.max(0,ahead-14)));}return target;}
+}
+root.DriveRoute=DriveRoute;
+})(typeof module!=='undefined'?module.exports:window);
