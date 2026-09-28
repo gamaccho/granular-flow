@@ -53,6 +53,7 @@ function tree(x,y,r){circle(x+2,y+3,r,'shadow',10);circle(x,y,r,'tree',12);circl
 let cloudField,lastSpeed=-1;const digitSegments=['abcdef','bc','abdeg','abcdg','bcfg','acdfg','acdefg','abc','abcdefg','abcdfg'];
 let clearance,crows=[],treeCount=0,rejectedTrees=0,natureMesh={buffer:gl.createBuffer(),count:0};
 let signals,motion,trains,trainMesh={buffer:gl.createBuffer(),count:0},signalMesh={buffer:gl.createBuffer(),count:0};
+let heading={angle:0,velocity:0};
 let meshes=[],car,carLamps,map,route,s=0,speed=90,acceleration=0,position={x:0,y:0,angle:0},elapsed=0,frames=0,last=0,paused=false,width=innerWidth,height=innerHeight,scale=1,ready=false,drawCalls=0;
 const label=document.getElementById('district'),roadLabel=document.getElementById('road-name'),fallback=document.getElementById('fallback');
 function resize(){width=innerWidth;height=innerHeight;const dpr=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);scale=Math.min(width,height)/400;gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(view,width/scale/2,height/scale/2);}addEventListener('resize',resize);resize();
@@ -83,9 +84,9 @@ async function build(data){map=data;clearance=new RoadClearance(map.roads);cloud
  // Small car, sized to the local streets, pointing north in local coordinates.
  roundRect(-6,-12,14,28,4,'dark');roundRect(-7.5,-8,3,6,1,'glass');roundRect(4.5,-8,3,6,1,'glass');roundRect(-7.5,6,3,6,1,'glass');roundRect(4.5,6,3,6,1,'glass');roundRect(-6.5,-15,13,29,4,'red');roundRect(-5.5,-6,11,15,2,'glass');roundRect(-4.5,-2,9,7,2,'peach');rect(-5,-12,3,2,'cream');rect(2,-12,3,2,'cream');rect(-5,11,3,2,'yellow');rect(2,11,3,2,'yellow');car=upload();vertices=[];
  rect(-5,-12,3,2,'headlamp');rect(2,-12,3,2,'headlamp');rect(-5,11,3,2,'tailLamp');rect(2,11,3,2,'tailLamp');carLamps=upload();vertices=[];
- route=new DriveRoute(map,Math.random,signals);motion=new DriveMotion(route,signals);s=motion.s;position=route.sample(s);ready=true;fallback.style.display='none';document.getElementById('place').hidden=false;requestAnimationFrame(frame);
+ route=new DriveRoute(map,Math.random,signals);motion=new DriveMotion(route,signals);s=motion.s;position=route.sample(s);heading={angle:position.angle,velocity:0};ready=true;fallback.style.display='none';document.getElementById('place').hidden=false;requestAnimationFrame(frame);
 }
-function update(dt){motion.step(dt);elapsed=motion.time;s=motion.s;speed=motion.speed;acceleration=motion.acceleration;position=route.sample(s);}
+function update(dt){motion.step(dt);elapsed=motion.time;s=motion.s;speed=motion.speed;acceleration=motion.acceleration;position=route.sample(s);heading=easeHeading(heading,position.angle,dt);position.angle=heading.angle;}
 function drawSignals(rx,ry){vertices=[];for(const a of signals.approaches.values()){if(Math.abs(a.x-position.x)>rx+25||Math.abs(a.y-position.y)>ry+25)continue;const start=vertices.length;roundRect(-12,-5,24,10,4,'signalBody');const phase=signals.phase(a,elapsed);circle(-7,0,2.65,phase==='green'?'signalGreen':'signalOff',12);circle(0,0,2.65,phase==='yellow'?'signalYellow':'signalOff',12);circle(7,0,2.65,phase==='red'?'signalRed':'signalOff',12);const c=Math.cos(a.angle),sn=Math.sin(a.angle);for(let i=start;i<vertices.length;i+=5){const x=vertices[i],y=vertices[i+1];vertices[i]=a.x+x*c-y*sn;vertices[i+1]=a.y+x*sn+y*c;}}
  gl.bindBuffer(gl.ARRAY_BUFFER,signalMesh.buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(vertices),gl.DYNAMIC_DRAW);signalMesh.count=vertices.length/5;draw(signalMesh,position.x,position.y);vertices=[];
 }
