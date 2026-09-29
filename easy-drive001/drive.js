@@ -1,7 +1,7 @@
 /* EASY DRIVE: real OSM town, bounded randomized route, batched WebGL tiles. */
 (() => {
 'use strict';
-const canvas=document.getElementById('scene'),speedDigits=[...document.querySelectorAll('.seven-seg g')].map(g=>[...g.children]),gaugeFill=document.getElementById('gauge-fill'),gaugeNeedle=document.getElementById('gauge-needle');
+const canvas=document.getElementById('scene'),gaugeFill=document.getElementById('gauge-fill'),gaugeNeedle=document.getElementById('gauge-needle');
 const gl=canvas.getContext('webgl',{alpha:false,stencil:true,antialias:true,powerPreference:'low-power'});
 if(!gl){document.getElementById('fallback').style.display='grid';return;}
 const C={grass:'#64b77a',park:'#42b67a',tree:'#12815a',treeLight:'#36c77b',treeDark:'#086548',trunk:'#456353',land:'#bacbd6',walk:'#a4bac7',curb:'#73858a',road:'#3d5361',line:'#eef5ef',shadow:'#879394',cream:'#f2f5f1',peach:'#a5afb1',blue:'#889598',yellow:'#f3bd45',roof:'#aeb7b9',concrete:'#929ea2',concreteDark:'#808d92',roofLight:'#d3dcdb',roofEdge:'#63757c',recess:'#51666f',dark:'#334850',red:'#f24832',glass:'#143744',water:'#169fbe',signalBody:'#213847',signalGreen:'#22ed83',signalYellow:'#ffcb35',signalRed:'#ff4c42',signalOff:'#52616b',windowWarm:'#ffd38a',windowCool:'#b7e4ee',headlamp:'#fff5ce',tailLamp:'#ff4027',trainGreen:'#85d339',trainRoof:'#c7d3d8',bridgeDeck:'#7eacb5',bridgeRail:'#d1e5e8',crow:'#14232c',cloud:'#f6fbff'};
@@ -50,7 +50,7 @@ function buildingLights(f){
 }
 function inPolygon(x,y,p){let hit=false;for(let i=0,j=p.length-1;i<p.length;j=i++){if((p[i][1]>y)!==(p[j][1]>y)&&x<(p[j][0]-p[i][0])*(y-p[i][1])/(p[j][1]-p[i][1])+p[i][0])hit=!hit;}return hit;}
 function tree(x,y,r){circle(x+2,y+3,r,'shadow',10);circle(x,y,r,'tree',12);circle(x-r*.25,y-r*.25,r*.64,'treeLight',10);}
-let cloudField,lastSpeed=-1;const digitSegments=['abcdef','bc','abdeg','abcdg','bcfg','acdfg','acdefg','abc','abcdefg','abcdfg'];
+let cloudField;
 let clearance,crows=[],treeCount=0,rejectedTrees=0,natureMesh={buffer:gl.createBuffer(),count:0};
 let signals,motion,trains,trainMesh={buffer:gl.createBuffer(),count:0},signalMesh={buffer:gl.createBuffer(),count:0};
 let heading={angle:0,velocity:0};
@@ -113,7 +113,7 @@ function frame(time){const dt=last?Math.min((time-last)/1000,.04):0;last=time;if
  if(lighting.night>.001){gl.uniform1f(emissionUniform,1);gl.uniform1f(opacityUniform,lighting.night);draw(carLamps,0,0,position.angle);}gl.uniform1f(opacityUniform,1);
  // Elevated decks occlude the car. Headlight beams stay below these structures.
  gl.uniform1f(nightUniform,0);drawLayer(6,6);gl.uniform1f(emissionUniform,.2*lighting.night);drawTrains(true,rx,ry);drawLayer(8,8);gl.uniform1f(nightUniform,lighting.night);
- drawNature(rx,ry,lighting);if(frames%3===0){const displayed=Math.min(95,Math.max(0,Math.round(speed/DRIVING.maxSpeed*95)));if(displayed!==lastSpeed){lastSpeed=displayed;String(displayed).padStart(2,'0').split('').forEach((d,i)=>speedDigits[i].forEach((segment,j)=>segment.classList.toggle('on',digitSegments[Number(d)].includes('abcdefg'[j]))));document.getElementById('speedometer').setAttribute('aria-label','速度 '+displayed+' km/h');}gaugeFill.style.strokeDasharray=(speed/720*100).toFixed(1)+' 100';gaugeNeedle.style.transform='rotate('+(speed/720*274).toFixed(1)+'deg)';}
+ drawNature(rx,ry,lighting);if(frames%3===0){gaugeFill.style.strokeDasharray=(speed/720*100).toFixed(1)+' 100';gaugeNeedle.style.transform='rotate('+(speed/720*274).toFixed(1)+'deg)';}
  if(frames%15===0){let nearest=map.labels[0];for(const l of map.labels)if(Math.hypot(l.p[0]-position.x,l.p[1]-position.y)<Math.hypot(nearest.p[0]-position.x,nearest.p[1]-position.y))nearest=l;label.textContent=nearest.name;roadLabel.textContent=position.name||'街をめぐる';document.documentElement.style.setProperty('--panel-bg','rgba('+lighting.panel.map(Math.round).join(',')+',.97)');document.documentElement.style.setProperty('--panel-ink','rgb('+(lighting.phase==='day'?colors.road.map((v,i)=>Math.round(v*lighting.ambient[i]*255)):lighting.ink.map(Math.round)).join(',')+')');document.documentElement.style.setProperty('--credit-shadow',lighting.phase==='day'?'none':'0 1px 2px var(--panel-bg),0 0 3px var(--panel-bg)');canvas.dataset.trees=treeCount;canvas.dataset.removedTrees=rejectedTrees;canvas.dataset.crows=crows.length;canvas.dataset.trainPositions=trains.cars(elapsed).filter(t=>t.car===0).map(t=>t.x.toFixed(1)+','+t.y.toFixed(1)).join(';');canvas.dataset.stencilBits=gl.getParameter(gl.STENCIL_BITS);canvas.dataset.position=position.x.toFixed(1)+','+position.y.toFixed(1);canvas.dataset.startEdge=route.startEdge;canvas.dataset.environment=lighting.phase;canvas.dataset.cycleTime=lighting.cycleTime.toFixed(2);}
  frames++;requestAnimationFrame(frame);}
 
