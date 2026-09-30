@@ -3,6 +3,18 @@ import assert from 'node:assert/strict';
 import { JevClient } from '../src/client/jevClient.js';
 
 const metrics = { speed: 0.2, jitter: 0, dwellRatio: 0, strokeLength: 120, curvature: 0, duration: 600, sampleCount: 20 };
+test('static Pages preview classifies gestures without any API request', async () => {
+  let count = 0;
+  const client = new JevClient({ staticPreview: true, fetchImpl: async () => { count += 1; throw new Error('No API on Pages'); } });
+  assert.equal(await client.checkHealth(), 'preview');
+  assert.equal(client.enabled, false);
+  for (const speed of [0.05, 0.2, 2]) {
+    const result = await client.evaluate({ ...metrics, speed });
+    assert.equal(result.source, 'heuristic');
+    assert.equal(result.reason, 'static_preview');
+  }
+  assert.equal(count, 0);
+});
 test('typed result is applied; cooldown prevents exceeding 30 requests/min', async () => {
   let now = 0;
   let count = 0;

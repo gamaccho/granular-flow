@@ -1,7 +1,7 @@
 import { classifyGesture, isMood } from '../../shared/mood.js';
 
 export class JevClient {
-  constructor({ fetchImpl = globalThis.fetch.bind(globalThis), now = () => performance.now(), timeoutMs = 300 } = {}) {
+  constructor({ fetchImpl = globalThis.fetch.bind(globalThis), now = () => performance.now(), timeoutMs = 300, staticPreview = false } = {}) {
     this.fetch = fetchImpl;
     this.now = now;
     this.timeoutMs = timeoutMs;
@@ -9,11 +9,12 @@ export class JevClient {
     this.blockedUntil = 0;
     this.requests = [];
     this.controller = null;
-    this.enabled = true;
-    this.provider = 'checking';
+    this.enabled = !staticPreview;
+    this.provider = staticPreview ? 'preview' : 'checking';
   }
 
   async checkHealth() {
+    if (this.provider === 'preview') return this.provider;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1500);
     try {
@@ -33,7 +34,7 @@ export class JevClient {
   async evaluate(metrics) {
     const fallback = (reason) => ({ ...classifyGesture(metrics), reason });
     const started = this.now();
-    if (!this.enabled) return fallback('not_configured');
+    if (!this.enabled) return fallback(this.provider === 'preview' ? 'static_preview' : 'not_configured');
     // 800ms is the hard debounce. 2100ms sustains the proxy's 30/min budget.
     this.requests = this.requests.filter((time) => started - time < 60000);
     if (this.controller || started - this.lastRequest < 2100 || started < this.blockedUntil || this.requests.length >= 30) {

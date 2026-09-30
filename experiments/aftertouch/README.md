@@ -2,7 +2,28 @@
 
 触れる速度と軌跡に応じて、粒子の流れと光が変化するThree.js作品です。Node.jsプロキシがTypeSafe Jevへ集約したジェスチャー指標を送り、型付きChoice結果を返します。APIキーを設定していない状態でも、ローカル判定で作品を操作できます。
 
-`gamaccho/granular-flow` の `experiments/aftertouch` に保存したテスト実装です。GitHubへのソース追加までを行い、公開ホスティングやギャラリー掲載はまだ設定していません。リポジトリのルートから使う場合は、先に `cd experiments/aftertouch` でこのフォルダーへ移動してください。
+`gamaccho/granular-flow` の `experiments/aftertouch` に保存したテスト実装です。[GitHub Pagesの公開テスト](https://gamaccho.github.io/granular-flow/aftertouch001/)はローカル判定で動作します。Jevプロキシの公開ホスティングとギャラリー掲載はまだ設定していません。リポジトリのルートから使う場合は、先に `cd experiments/aftertouch` でこのフォルダーへ移動してください。
+
+## GitHub Pagesの公開テスト
+
+公開先：**https://gamaccho.github.io/granular-flow/aftertouch001/**
+
+画面には「01 / PREVIEW」「公開テスト · ローカル判定（Jevなし）」と表示します。動きに応じた描画と分類はブラウザー内で行い、APIリクエストは送りません。サーバーやAPIキーを公開ファイルに含めません。
+
+```sh
+npm ci
+npm run build:pages
+```
+
+生成された `dist` の内容をリポジトリの `aftertouch001/` に配置し、mainへ反映するとPagesで配信されます。アセットは相対URLなので、リポジトリのサブディレクトリから読み込めます。通常の `npm run dev` / `npm run build` では、従来どおりプロキシへ接続します。
+
+配信したビルドのブラウザーテストは、ローカルの静的HTTPサーバーまたは公開先を指定して実行できます。
+
+```sh
+AFTERTOUCH_PREVIEW_URL=https://gamaccho.github.io/granular-flow/aftertouch001/ npm run test:browser -- --grep 'static Pages preview'
+```
+
+モバイル表示の自動検証はChromeの端末エミュレーションです。iPhone実機のSafariでの速度・表示は別途確認してください。
 
 ## 起動
 

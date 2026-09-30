@@ -8,7 +8,8 @@ const canvas = document.querySelector('#art');
 const errorPanel = document.querySelector('#error');
 const connection = document.querySelector('#connection');
 const tracker = new GestureTracker();
-const client = new JevClient();
+const client = new JevClient({ staticPreview: import.meta.env.VITE_STATIC_PREVIEW === true });
+if (client.provider === 'preview') document.querySelector('.edition span').textContent = '01 / PREVIEW';
 const colors = { hesitant: '#8ec9ed', aggressive: '#f56751', tender: '#eab073', playful: '#b88bff' };
 const values = { ...MODES.tender };
 let target = MODES.tender;
@@ -52,6 +53,7 @@ function showMood(result) {
   connection.dataset.source = source;
   if (result.source === 'jev') connection.textContent = `Jev · ジェスチャー判定 · ${result.latencyMs ?? '—'}ms`;
   else if (result.source === 'mock') connection.textContent = 'モック接続 · ジェスチャー判定';
+  else if (client.provider === 'preview') connection.textContent = '公開テスト · ローカル判定（Jevなし）';
   else if (client.provider === 'heuristic' || !client.enabled) connection.textContent = 'ローカル判定 · Jevキー未設定';
   else if (connectionReason === 'upstream_auth') connection.textContent = 'ローカル判定 · Jevキーの認証に失敗';
   else if (connectionReason === 'timeout' || connectionReason === 'upstream_timeout') connection.textContent = 'ローカル判定 · Jev応答の期限を超過';

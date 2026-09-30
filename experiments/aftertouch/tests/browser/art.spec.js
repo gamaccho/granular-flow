@@ -1,5 +1,49 @@
 import { test, expect } from '@playwright/test';
 
+test('static Pages preview loads assets under a subdirectory and responds without API requests', async ({ page }, testInfo) => {
+  test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built Pages preview.');
+  const errors = [];
+  const apiRequests = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('request', (request) => { if (new URL(request.url()).pathname.includes('/api/')) apiRequests.push(request.url()); });
+  await page.goto(new URL('?debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
+  await expect(page.locator('#error')).toBeHidden();
+  await expect(page.locator('#connection')).toHaveText('公開テスト · ローカル判定（Jevなし）');
+  await expect(page.locator('.edition span')).toHaveText('01 / PREVIEW');
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(5);
+  const viewport = page.viewportSize();
+  // Touch PointerEvents use the same input handlers on the mobile viewport.
+  const type = testInfo.project.name === 'mobile' ? 'touch' : 'mouse';
+  const fire = async (eventType, x) => page.locator('#art').dispatchEvent(eventType, {
+    pointerId: 1, pointerType: type, isPrimary: true, buttons: 1,
+    clientX: viewport.width * x, clientY: viewport.height * 0.55,
+  });
+  // Native down/up obtains pointer capture; moves exercise sustained gestures.
+  await page.mouse.move(viewport.width * 0.2, viewport.height * 0.55);
+  await page.mouse.down();
+  for (let i = 0; i < 8; i += 1) {
+    await fire('pointermove', i % 2 ? 0.2 : 0.8);
+    await page.waitForTimeout(25);
+  }
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().mood)).toBe('aggressive');
+  await page.mouse.up();
+  if (testInfo.project.name === 'mobile') await page.touchscreen.tap(viewport.width * 0.5, viewport.height * 0.5);
+  await expect(page.locator('#intro')).toHaveClass(/has-touched/);
+  await page.locator('#pause').click();
+  await expect(page.locator('#pause')).toHaveAttribute('aria-label', '再生');
+  const stopped = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime);
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime)).toBe(stopped);
+  await page.locator('#reset').click();
+  await expect(page.locator('#mode-label')).toHaveText('Tender');
+  await page.locator('#pause').click();
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime)).toBeGreaterThan(0.1);
+  await page.screenshot({ path: testInfo.outputPath('pages-preview.png') });
+  expect(apiRequests).toEqual([]);
+  expect(errors).toEqual([]);
+});
+
 test('GPU artwork renders, gestures respond, pause freezes, reset and resize recover', async ({ page }, testInfo) => {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));

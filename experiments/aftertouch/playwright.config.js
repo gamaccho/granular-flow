@@ -5,15 +5,15 @@ export default defineConfig({
   timeout: 30000,
   workers: 1,
   use: {
-    baseURL: 'http://127.0.0.1:5173',
-    channel: 'chrome',
+    baseURL: process.env.AFTERTOUCH_PREVIEW_URL || 'http://127.0.0.1:5173',
+    channel: process.env.CI ? 'chromium' : 'chrome',
     launchOptions: { args: ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] },
   },
   projects: [
     { name: 'desktop', use: { viewport: { width: 1440, height: 900 } } },
     { name: 'mobile', use: { ...devices['iPhone 13'], defaultBrowserType: 'chromium' } },
   ],
-  webServer: {
+  webServer: process.env.AFTERTOUCH_PREVIEW_URL ? undefined : {
     command: 'npm run dev',
     url: 'http://127.0.0.1:5173',
     reuseExistingServer: !process.env.CI,
