@@ -5,7 +5,7 @@ test('static Pages preview loads assets under a subdirectory and responds withou
   const errors = [];
   const apiRequests = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`); });
   page.on('request', (request) => { if (new URL(request.url()).pathname.includes('/api/')) apiRequests.push(request.url()); });
   await page.goto(new URL('?debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
   await expect(page.locator('#error')).toBeHidden();
