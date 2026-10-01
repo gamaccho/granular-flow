@@ -57,7 +57,7 @@ function showMood(result) {
     mood = result.choice;
     target = MODES[mood];
     document.querySelector('#mode-label').textContent = target.label;
-    document.querySelector('#mode-note').textContent = target.note;
+    document.querySelector('#mode-note').textContent = spatial && mood === 'playful' ? '曲線を描くと、虹色の流れが生まれます。' : target.note;
     document.querySelector('#mode-dot').style.background = colors[mood];
     document.querySelector('#mode-dot').style.boxShadow = `0 0 12px ${colors[mood]}88`;
   }

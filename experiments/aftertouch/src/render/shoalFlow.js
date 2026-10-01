@@ -4,6 +4,7 @@ import quadVertex from '../shaders/simulation.vert.glsl?raw';
 import simulationFragment from '../shaders/shoal-simulation.frag.glsl?raw';
 import particleVertex from '../shaders/shoal.vert.glsl?raw';
 import particleFragment from '../shaders/particles.frag.glsl?raw';
+import trailFragment from '../shaders/shoal-trail.frag.glsl?raw';
 
 const material = (vertexShader, fragmentShader, uniforms, options = {}) => new THREE.RawShaderMaterial({
   glslVersion: THREE.GLSL3, vertexShader, fragmentShader, uniforms,
@@ -14,6 +15,20 @@ export class ShoalFlow extends ParticleFlow {
   constructor(canvas) {
     super(canvas);
     this.spatialCamera = new THREE.PerspectiveCamera(38, 1, 0.1, 30);
+    this.spatialCamera.zoom = 0.8;
+    // Reduce both rendered instances and simulation texels. Keep the original
+    // per-fiber brightness instead of compensating for the lower population.
+    this.count = Math.round(this.count * 0.8);
+    this.grid = Math.ceil(Math.sqrt(this.count));
+    const uv = new Float32Array(this.count * 2);
+    for (let i = 0; i < this.count; i += 1) {
+      uv[i * 2] = (i % this.grid + 0.5) / this.grid;
+      uv[i * 2 + 1] = (Math.floor(i / this.grid) + 0.5) / this.grid;
+    }
+    this.particles.geometry.setAttribute('a_uv', new THREE.InstancedBufferAttribute(uv, 2));
+    this.particles.geometry.instanceCount = this.count;
+    this.trailMaterial.fragmentShader = trailFragment;
+    this.trailMaterial.needsUpdate = true;
     this.viewProjection = new THREE.Matrix4();
     Object.assign(this.uniforms, {
       u_velocity: { value: null }, u_view_projection: { value: this.viewProjection },
@@ -39,9 +54,10 @@ export class ShoalFlow extends ParticleFlow {
 
   reset() {
     if (!this.spatialCamera) return super.reset();
-    const positions = new Float32Array(this.count * 4);
-    const velocities = new Float32Array(this.count * 4);
-    for (let i = 0; i < this.count; i += 1) {
+    const texels = this.grid * this.grid;
+    const positions = new Float32Array(texels * 4);
+    const velocities = new Float32Array(texels * 4);
+    for (let i = 0; i < texels; i += 1) {
       const height = ((i * 0.754877666) % 1);
       const thickness = ((i * 0.569840296) % 1);
       const theta = i * 2.39996323;
