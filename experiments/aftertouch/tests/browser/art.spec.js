@@ -1,5 +1,50 @@
 import { test, expect } from '@playwright/test';
 
+test('spatial shoal has moving depth, responds to brushing, and recovers after reset and resize', async ({ page }, testInfo) => {
+  test.setTimeout(60000);
+  test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto(new URL('?view=shoal&debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
+  await expect(page.locator('.edition span')).toHaveText('02 / SHOAL');
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(5);
+  const before = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
+  const validDepth = (samples) => {
+    expect(samples.every((sample) => Object.values(sample).every(Number.isFinite))).toBe(true);
+    expect(Math.max(...samples.map((s) => s.z)) - Math.min(...samples.map((s) => s.z))).toBeGreaterThan(0.6);
+  };
+  validDepth(before);
+  const frame = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(frame + 3);
+  const moving = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
+  expect(moving.some((s, i) => Math.abs(s.z - before[i].z) > 0.001)).toBe(true);
+  const viewport = page.viewportSize();
+  const span = Math.min(viewport.width * 0.25, viewport.height * 0.22);
+  await page.mouse.move(viewport.width / 2 - span, viewport.height / 2);
+  const primed = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(primed);
+  await page.mouse.down();
+  await page.mouse.move(viewport.width / 2 + span, viewport.height / 2);
+  const brushed = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(brushed);
+  const motion = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
+  expect(Math.max(...motion.map((s) => Math.hypot(s.vx, s.vy, s.vz)))).toBeGreaterThan(0.4);
+  await page.mouse.up();
+  await page.locator('#pause').click();
+  const stopped = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime);
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime)).toBe(stopped);
+  await page.screenshot({ path: testInfo.outputPath('spatial-shoal.png') });
+  await page.locator('#reset').click();
+  validDepth(await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion()));
+  await page.setViewportSize({ width: 780, height: 600 });
+  await page.locator('#pause').click();
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime)).toBeGreaterThan(0.1);
+  await expect(page.locator('#error')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test('fiber ribbons gain strong GPU motion in both swipe directions', async ({ page }, testInfo) => {
   test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
   const errors = [];

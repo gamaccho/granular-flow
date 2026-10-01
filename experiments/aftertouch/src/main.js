@@ -2,9 +2,12 @@ import './style.css';
 import { GestureTracker } from './input/gestureTracker.js';
 import { JevClient } from './client/jevClient.js';
 import { ParticleFlow } from './render/particleFlow.js';
+import { ShoalFlow } from './render/shoalFlow.js';
 import { MODES, classifyGesture, smoothValue } from '../shared/mood.js';
 
 const canvas = document.querySelector('#art');
+const spatial = new URLSearchParams(location.search).get('view') === 'shoal';
+const Flow = spatial ? ShoalFlow : ParticleFlow;
 const errorPanel = document.querySelector('#error');
 const connection = document.querySelector('#connection');
 const tracker = new GestureTracker();
@@ -14,6 +17,11 @@ const client = new JevClient({
 });
 if (client.provider === 'preview') document.querySelector('.edition span').textContent = '01 / PREVIEW';
 else if (client.apiBase) document.querySelector('.edition span').textContent = '01 / JEV';
+if (spatial) {
+  document.querySelector('.edition').firstChild.textContent = 'SPATIAL STUDY';
+  document.querySelector('.edition span').textContent = '02 / SHOAL';
+  document.querySelector('#intro p').innerHTML = '立体の流れに、触れる。<br /><span>Reach into the turning shoal.</span>';
+}
 const colors = { hesitant: '#8ec9ed', aggressive: '#f56751', tender: '#eab073', playful: '#b88bff' };
 const values = { ...MODES.tender };
 let target = MODES.tender;
@@ -165,7 +173,7 @@ const debug = new URLSearchParams(location.search).has('debug');
 const debugPanel = document.querySelector('#debug');
 debugPanel.hidden = !debug;
 if (debug) window.__AFTERTOUCH__ = {
-  snapshot: () => ({ mood, source, paused, fps: Math.round(fps), particles: flow?.count, quality: flow?.quality, frames: qualityFrames, simulationTime: flow?.time, pointer: { x: pointer.x, y: pointer.y, vx: pointer.vx, vy: pointer.vy, active: pointer.active, inside: pointer.inside }, values: { turbulence: values.turbulence, decay: values.decay, paletteBlend: values.paletteBlend, attraction: values.attraction }, metrics: tracker.snapshot() }),
+  snapshot: () => ({ view: spatial ? 'shoal' : 'flow', mood, source, paused, fps: Math.round(fps), particles: flow?.count, quality: flow?.quality, frames: qualityFrames, simulationTime: flow?.time, pointer: { x: pointer.x, y: pointer.y, vx: pointer.vx, vy: pointer.vy, active: pointer.active, inside: pointer.inside }, values: { turbulence: values.turbulence, decay: values.decay, paletteBlend: values.paletteBlend, attraction: values.attraction }, metrics: tracker.snapshot() }),
   sampleMotion: () => flow?.sampleMotion(),
 };
 
@@ -227,7 +235,7 @@ canvas.addEventListener('webglcontextlost', (event) => {
 canvas.addEventListener('webglcontextrestored', () => {
   try {
     flow?.dispose();
-    flow = new ParticleFlow(canvas);
+    flow = new Flow(canvas);
     errorPanel.hidden = true;
     lastFrame = performance.now();
     animationId = requestAnimationFrame(frame);
@@ -236,7 +244,7 @@ canvas.addEventListener('webglcontextrestored', () => {
 window.addEventListener('pagehide', () => { cancelAnimationFrame(animationId); client.dispose(); flow?.dispose(); });
 
 try {
-  flow = new ParticleFlow(canvas);
+  flow = new Flow(canvas);
   showMood({ choice: 'tender', confidence: 0.6, source: 'heuristic' });
   animationId = requestAnimationFrame(frame);
 } catch (error) { showError(error.message); }

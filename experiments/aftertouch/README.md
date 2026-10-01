@@ -6,6 +6,8 @@
 
 ## GitHub Pagesの公開テスト
 
+立体の渦の試作は [02 / SHOAL](https://gamaccho.github.io/granular-flow/aftertouch001/?view=shoal) で開けます。通常のURLは従来の平面版を保ちます。立体版はGPU上でXYZ位置・速度を更新し、空洞のある渦を透視投影します。ゆっくり変わる視点と前後の明暗で奥行きを表現し、指の動きを画面から立体空間へ変換して毛足をなびかせます。光の繊維による表現で、魚の形や個体間の群れ行動を再現するモデルではありません。Jev接続・ローカル判定は共通です。自動検証はデスクトップとモバイル比率のChromiumで行い、iPhone実機の描画速度は未検証です。
+
 公開先：**https://gamaccho.github.io/granular-flow/aftertouch001/**
 
 画面には「01 / JEV」と表示します。動きに応じた描画とローカル判定を続けながら、集約した7項目のジェスチャー指標を `https://aftertouch-jev-proxy.onrender.com` へ送ります。実際のJev応答が返った場合だけ、左下に「Jev · ジェスチャー判定」と表示します。遅延・失敗時は理由付きのローカル判定を表示します。サーバーやAPIキーを公開ファイルに含めません。
