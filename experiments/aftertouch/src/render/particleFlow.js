@@ -23,7 +23,8 @@ export class ParticleFlow {
     this.shaderError = false;
     this.renderer.debug.onShaderError = () => { this.shaderError = true; console.error('AFTERTOUCH: shader compilation failed'); };
     this.isMobile = matchMedia('(pointer: coarse)').matches;
-    this.grid = this.isMobile ? 192 : 256;
+    // Four vertices per fiber: keep the vertex budget of the former point renderer.
+    this.grid = this.isMobile ? 96 : 128;
     this.count = this.grid * this.grid;
     this.quality = this.isMobile ? 1.2 : 1.5;
     this.camera = new THREE.Camera();

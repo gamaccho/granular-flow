@@ -21,9 +21,10 @@ test('fiber ribbons gain strong GPU motion in both swipe directions', async ({ p
   };
   await swipe(0.18, 0.82);
   await expect.poll(() => page.evaluate(() => Math.max(...window.__AFTERTOUCH__.sampleMotion().map((sample) => sample.vx)))).toBeGreaterThan(0.8);
-  await page.locator('#pause').click();
-  await page.screenshot({ path: testInfo.outputPath('fibers-swipe-right.png') });
   await page.mouse.up();
+  await page.locator('#pause').click();
+  await expect(page.locator('#pause')).toHaveAttribute('aria-label', '再生');
+  await page.screenshot({ path: testInfo.outputPath('fibers-swipe-right.png') });
   await page.locator('#reset').click();
   await page.locator('#pause').click();
   await swipe(0.82, 0.18);
