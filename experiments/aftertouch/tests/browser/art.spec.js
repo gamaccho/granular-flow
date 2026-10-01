@@ -1,5 +1,38 @@
 import { test, expect } from '@playwright/test';
 
+test('fiber ribbons gain strong GPU motion in both swipe directions', async ({ page }, testInfo) => {
+  test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto(new URL('?debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(5);
+  const idle = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
+  expect(idle.every((sample) => Object.values(sample).every(Number.isFinite))).toBe(true);
+  expect(Math.max(...idle.map((sample) => Math.hypot(sample.vx, sample.vy)))).toBeLessThan(0.6);
+  const viewport = page.viewportSize();
+  const swipe = async (start, end) => {
+    await page.mouse.move(viewport.width * start, viewport.height * 0.5);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i += 1) {
+      await page.mouse.move(viewport.width * (start + (end - start) * i / 8), viewport.height * 0.5);
+      await page.waitForTimeout(40);
+    }
+  };
+  await swipe(0.18, 0.82);
+  await expect.poll(() => page.evaluate(() => Math.max(...window.__AFTERTOUCH__.sampleMotion().map((sample) => sample.vx)))).toBeGreaterThan(0.8);
+  await page.locator('#pause').click();
+  await page.screenshot({ path: testInfo.outputPath('fibers-swipe-right.png') });
+  await page.mouse.up();
+  await page.locator('#reset').click();
+  await page.locator('#pause').click();
+  await swipe(0.82, 0.18);
+  await expect.poll(() => page.evaluate(() => Math.min(...window.__AFTERTOUCH__.sampleMotion().map((sample) => sample.vx)))).toBeLessThan(-0.8);
+  await page.mouse.up();
+  await expect(page.locator('#error')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
 test('connected Pages uses the external proxy and displays a returned Jev decision', async ({ page }, testInfo) => {
   test.skip(!process.env.AFTERTOUCH_CONNECTED_URL, 'Requires the connected Pages build.');
   const apiBase = process.env.AFTERTOUCH_EXPECTED_API_BASE;

@@ -54,4 +54,4 @@ jobs:
           cp -R dist-preview/. "$RUNNER_TEMP/aftertouch-pages-check/aftertouch001/"
           cp -R dist/. "$RUNNER_TEMP/aftertouch-pages-check/aftertouch-connected/"
           python3 -m http.server 5181 --bind 127.0.0.1 --directory "$RUNNER_TEMP/aftertouch-pages-check" > "$RUNNER_TEMP/aftertouch-pages-http.log" 2>&1 &
-          npm run test:browser -- --grep 'static Pages preview|connected Pages'
+          npm run test:browser -- --grep 'static Pages preview|connected Pages|fiber ribbons'

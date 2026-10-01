@@ -36,8 +36,10 @@ export class ParticleFlow {
       u_state: { value: null }, u_time: { value: 0 }, u_dt: { value: 1 / 60 },
       u_turbulence: { value: 0.4 }, u_decay: { value: 0.95 }, u_particle_attraction: { value: 1 },
       u_palette_blend: { value: 2 }, u_pointer: { value: new THREE.Vector2() },
+      u_pointer_previous: { value: new THREE.Vector2() },
       u_pointer_velocity: { value: new THREE.Vector2() }, u_active: { value: 0 },
       u_aspect: { value: 1 }, u_pixel_ratio: { value: 1 }, u_density: { value: 65536 / this.count },
+      u_resolution: { value: new THREE.Vector2() },
     };
     const stateOptions = { type: THREE.HalfFloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, stencilBuffer: false };
     this.states = [new THREE.WebGLRenderTarget(this.grid, this.grid, stateOptions), new THREE.WebGLRenderTarget(this.grid, this.grid, stateOptions)];
@@ -48,22 +50,28 @@ export class ParticleFlow {
     this.trailMaterial = makeMaterial(quadVertex, trailFragment, this.trailUniforms);
     this.displayUniforms = { u_trail: { value: null }, u_resolution: { value: new THREE.Vector2() }, u_time: this.uniforms.u_time };
     this.displayMaterial = makeMaterial(quadVertex, displayFragment, this.displayUniforms);
-    const geometry = new THREE.BufferGeometry();
+    // Narrow instanced ribbons give long fibers without large square point sprites.
+    const geometry = new THREE.InstancedBufferGeometry();
     const uv = new Float32Array(this.count * 2);
     for (let i = 0; i < this.count; i += 1) {
       uv[i * 2] = (i % this.grid + 0.5) / this.grid;
       uv[i * 2 + 1] = (Math.floor(i / this.grid) + 0.5) / this.grid;
     }
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.count * 3), 3));
-    geometry.setAttribute('a_uv', new THREE.BufferAttribute(uv, 2));
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+      0, -0.5, 0, 1, -0.5, 0, 1, 0.5, 0, 0, 0.5, 0,
+    ]), 3));
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    geometry.setAttribute('a_uv', new THREE.InstancedBufferAttribute(uv, 2));
+    geometry.instanceCount = this.count;
     this.particleMaterial = makeMaterial(particleVertex, particleFragment, this.uniforms, { blending: THREE.AdditiveBlending, transparent: true });
-    this.particles = new THREE.Points(geometry, this.particleMaterial);
+    this.particles = new THREE.Mesh(geometry, this.particleMaterial);
     this.particles.frustumCulled = false;
     this.particleScene = new THREE.Scene();
     this.particleScene.add(this.particles);
     this.stateIndex = 0;
     this.trailIndex = 0;
     this.time = 0;
+    this.pointerEngaged = false;
     this.resize();
     this.reset();
   }
@@ -99,6 +107,7 @@ export class ParticleFlow {
     }
     this.renderer.setRenderTarget(null);
     this.time = 0;
+    this.pointerEngaged = false;
   }
 
   resize() {
@@ -109,6 +118,7 @@ export class ParticleFlow {
     this.renderer.setSize(width, height, false);
     this.uniforms.u_aspect.value = width / height;
     this.uniforms.u_pixel_ratio.value = ratio;
+    this.uniforms.u_resolution.value.set(width, height);
     this.displayUniforms.u_resolution.value.set(width, height);
     for (const trail of this.trails) trail.setSize(Math.round(width * ratio), Math.round(height * ratio));
     this.trailUniforms.u_texel.value.set(1 / Math.round(width * ratio), 1 / Math.round(height * ratio));
@@ -133,7 +143,10 @@ export class ParticleFlow {
     u.u_decay.value = values.decay;
     u.u_palette_blend.value = values.paletteBlend;
     u.u_particle_attraction.value = values.attraction;
+    if (this.pointerEngaged && pointer.inside) u.u_pointer_previous.value.copy(u.u_pointer.value);
+    else u.u_pointer_previous.value.set(pointer.x, pointer.y);
     u.u_pointer.value.set(pointer.x, pointer.y);
+    this.pointerEngaged = pointer.inside;
     u.u_pointer_velocity.value.set(pointer.vx, pointer.vy);
     u.u_active.value = pointer.active;
     const nextState = 1 - this.stateIndex;
@@ -157,6 +170,21 @@ export class ParticleFlow {
     this.quality = Math.max(0.75, this.quality - 0.25);
     this.resize();
     return true;
+  }
+
+  sampleMotion() {
+    // On-demand debug readback only; no GPU readback or CPU particle loop in frame().
+    const size = 16;
+    const pixels = new Uint16Array(size * size * 4);
+    this.renderer.readRenderTargetPixels(this.states[this.stateIndex], 0, 0, size, size, pixels);
+    const samples = [];
+    for (let i = 0; i < pixels.length; i += 4) samples.push({
+      x: THREE.DataUtils.fromHalfFloat(pixels[i]),
+      y: THREE.DataUtils.fromHalfFloat(pixels[i + 1]),
+      vx: THREE.DataUtils.fromHalfFloat(pixels[i + 2]),
+      vy: THREE.DataUtils.fromHalfFloat(pixels[i + 3]),
+    });
+    return samples;
   }
 
   dispose() {

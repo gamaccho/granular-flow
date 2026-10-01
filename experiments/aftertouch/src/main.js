@@ -73,8 +73,12 @@ function contact(event) {
   const position = flow.pointerFromScreen(event.clientX, event.clientY);
   const dt = Math.max((now - previousPointerTime) / 1000, 1 / 240);
   if (pointer.inside) {
-    pointer.vx = Math.max(-3, Math.min(3, (position.x - pointer.x) / dt));
-    pointer.vy = Math.max(-3, Math.min(3, (position.y - pointer.y) / dt));
+    const vx = (position.x - pointer.x) / dt;
+    const vy = (position.y - pointer.y) / dt;
+    // Limit speed as a vector so diagonal swipes keep their actual direction.
+    const gain = Math.min(1, 8 / Math.max(Math.hypot(vx, vy), 0.001));
+    pointer.vx = vx * gain;
+    pointer.vy = vy * gain;
   }
   pointer.x = position.x;
   pointer.y = position.y;
@@ -160,7 +164,10 @@ document.addEventListener('keydown', (event) => {
 const debug = new URLSearchParams(location.search).has('debug');
 const debugPanel = document.querySelector('#debug');
 debugPanel.hidden = !debug;
-if (debug) window.__AFTERTOUCH__ = { snapshot: () => ({ mood, source, paused, fps: Math.round(fps), particles: flow?.count, quality: flow?.quality, frames: qualityFrames, simulationTime: flow?.time, values: { turbulence: values.turbulence, decay: values.decay, paletteBlend: values.paletteBlend, attraction: values.attraction }, metrics: tracker.snapshot() }) };
+if (debug) window.__AFTERTOUCH__ = {
+  snapshot: () => ({ mood, source, paused, fps: Math.round(fps), particles: flow?.count, quality: flow?.quality, frames: qualityFrames, simulationTime: flow?.time, values: { turbulence: values.turbulence, decay: values.decay, paletteBlend: values.paletteBlend, attraction: values.attraction }, metrics: tracker.snapshot() }),
+  sampleMotion: () => flow?.sampleMotion(),
+};
 
 function frame(now) {
   const dt = Math.min((now - lastFrame) / 1000, 0.05);
@@ -172,8 +179,8 @@ function frame(now) {
   if (qualityFrames > 180 && dt > 0.025) slowFrames += 1;
   else slowFrames = Math.max(0, slowFrames - 0.5);
   if (slowFrames > 100) { flow.reduceQuality(); slowFrames = 0; }
-  pointer.vx *= Math.exp(-dt * 8);
-  pointer.vy *= Math.exp(-dt * 8);
+  pointer.vx *= Math.exp(-dt * 5);
+  pointer.vy *= Math.exp(-dt * 5);
   if (!pointer.inside) pointer.active *= Math.exp(-dt * 3.5);
   if (pointer.inside) {
     if (now - lastSample >= 30) { tracker.record(pointer.clientX, pointer.clientY, now); lastSample = now; }
