@@ -3844,6 +3844,8 @@ uniform float u_dt;
 uniform float u_turbulence;
 uniform float u_decay;
 uniform float u_particle_attraction;
+uniform float u_aspect;
+uniform vec2 u_resolution;
 uniform vec2 u_pointer;
 uniform vec2 u_pointer_previous;
 uniform vec2 u_pointer_velocity;
@@ -3882,21 +3884,29 @@ void main() {
   vec2 direction = toward / max(distanceToTouch, 0.02);
   float swipeSpeed = length(u_pointer_velocity);
   float brushing = smoothstep(0.15, 1.1, swipeSpeed);
-  float brushRadius = mix(0.28, 0.50, smoothstep(0.2, 6.0, swipeSpeed));
-  float influence = exp(-distanceToTouch * distanceToTouch / (brushRadius * brushRadius)) * u_active;
+  // A compact fingertip footprint in CSS pixels, independent of viewport shape.
+  float scale = u_aspect < 1.0 ? u_aspect * 1.55 : 1.22;
+  float brushRadius = mix(18.0, 26.0, smoothstep(0.2, 6.0, swipeSpeed)) * 2.0 / (u_resolution.y * scale);
+  float influence = (1.0 - smoothstep(0.25, 1.0, distanceToTouch / brushRadius)) * u_active;
   float burst = smoothstep(1.6, 2.8, u_particle_attraction);
   float orbit = 1.0 - smoothstep(0.08, 0.4, abs(u_particle_attraction - 0.5));
   vec2 touchForce = direction * u_particle_attraction * (1.0 - burst) * 0.6;
   touchForce -= direction * burst * 2.3;
   touchForce += vec2(-direction.y, direction.x) * orbit * 0.65;
+  vec2 rootDrift = field + touchForce * influence * (1.0 - brushing) * 0.12;
   field += touchForce * influence * (1.0 - brushing * 0.9);
   vec2 combDirection = u_pointer_velocity / max(swipeSpeed, 0.001);
   vec2 combVelocity = combDirection * min(swipeSpeed * 0.9, 3.4) + field * 0.06;
   float combing = min(influence * brushing, 0.98);
   field = mix(field, combVelocity, combing);
-  velocity = mix(velocity, field, min(1.0, u_dt * (4.0 + combing * 22.0)));
-  velocity *= pow(u_decay, u_dt * 20.0);
-  p += velocity * u_dt;
+  // Keep the combed direction as elastic memory instead of throwing the root.
+  // Strongly stretched fibers relax over seconds, while untouched fibers retain
+  // the original flow. Contact can still redirect a remembered fiber immediately.
+  float stretched = smoothstep(0.30, 0.75, length(velocity));
+  float relaxation = mix(4.0, 0.22, stretched);
+  velocity = mix(velocity, field, min(1.0, u_dt * (relaxation + combing * 30.0)));
+  velocity *= pow(mix(u_decay, 0.996, stretched), u_dt * 20.0);
+  p += rootDrift * u_dt;
   if (length(p) > 1.65) {
     float angle = seed * 6.2831853 + u_time * 0.1;
     p = vec2(cos(angle), sin(angle) / 1.17) * band;
@@ -3936,11 +3946,12 @@ void main() {
   vec2 direction = speed > 0.001 ? state.zw / speed : vec2(1.0, 0.0);
   vec2 normal = vec2(-direction.y, direction.x);
   float t = position.x;
-  float fiberLength = 0.012 + min(speed, 3.4) * 0.12;
+  float fiberLength = 0.012 + min(speed, 3.4) * 0.16;
   float width = (1.0 + seed * 0.45 + min(speed, 3.4) * 0.12) * 2.0 / (u_resolution.y * scale);
   float taper = mix(0.3, 1.0, smoothstep(0.0, 0.18, t)) * (1.0 - 0.75 * t * t * t);
   float bow = sin(t * 3.14159265) * min(speed, 3.4) * 0.004 * sin(seed * 6.2831853 + u_time * 0.2);
-  p -= direction * fiberLength * (1.0 - t);
+  // Root stays in the flow; the continuous ribbon stretches toward the swipe.
+  p += direction * fiberLength * t;
   p += normal * (position.y * width * taper + bow);
   gl_Position = vec4(p.x * scale / u_aspect, p.y * scale, 0.0, 1.0);
   v_fiber = vec2(t, position.y * 2.0);

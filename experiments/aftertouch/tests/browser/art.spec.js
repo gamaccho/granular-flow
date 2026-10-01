@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-test('fiber ribbons gain strong GPU motion in both swipe directions', async ({ page }, testInfo) => {
+test('fiber ribbons respond locally and retain stretch in both swipe directions', async ({ page }, testInfo) => {
+  test.setTimeout(60000);
   test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -14,25 +15,41 @@ test('fiber ribbons gain strong GPU motion in both swipe directions', async ({ p
   const swipe = async (start, end) => {
     const direction = Math.sign(end - start);
     await page.mouse.move(viewport.width * start, viewport.height * 0.5);
+    // Prime the previous position before starting a sparse, fast stroke.
+    const primedAt = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
+    await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(primedAt);
     await page.mouse.down();
     // Readback stalls a software GPU. Complete a fast native stroke first,
     // then inspect its result once instead of slowing every movement sample.
     await page.mouse.move(viewport.width * end, viewport.height * 0.5);
-    await page.waitForTimeout(50);
+    const movedAt = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
+    await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(movedAt);
     const motion = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
     const peak = Math.max(...motion.map((sample) => sample.vx * direction));
     console.log(`GPU swipe ${direction > 0 ? 'right' : 'left'} peak: ${peak}`);
     console.log(JSON.stringify(await page.evaluate(() => window.__AFTERTOUCH__.snapshot())));
-    return peak;
+    const stretched = motion.filter((sample) => sample.vx * direction > 0.8);
+    expect(stretched.length).toBeGreaterThan(0);
+    expect(stretched.length / motion.length).toBeLessThan(0.18);
+    // Roots remain near the original flow instead of leaving and respawning.
+    expect(motion.every((sample) => Math.hypot(sample.x, sample.y * 1.17) < 0.9)).toBe(true);
+    return { peak, motion, direction };
   };
-  expect(await swipe(0.18, 0.82)).toBeGreaterThan(0.8);
+  const right = await swipe(0.12, 0.88);
+  expect(right.peak).toBeGreaterThan(0.8);
   await page.mouse.up();
+  const releasedAt = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime);
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime), { timeout: 20000 }).toBeGreaterThan(releasedAt + 2.0);
+  const retained = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
+  const strongest = right.motion.reduce((best, sample, index, samples) => sample.vx > samples[best].vx ? index : best, 0);
+  expect(retained[strongest].vx).toBeGreaterThan(right.peak * 0.4);
+  expect(Math.hypot(retained[strongest].x, retained[strongest].y * 1.17)).toBeLessThan(0.9);
   await page.locator('#pause').click();
   await expect(page.locator('#pause')).toHaveAttribute('aria-label', '再生');
   await page.screenshot({ path: testInfo.outputPath('fibers-swipe-right.png') });
   await page.locator('#reset').click();
   await page.locator('#pause').click();
-  expect(await swipe(0.82, 0.18)).toBeGreaterThan(0.8);
+  expect((await swipe(0.88, 0.12)).peak).toBeGreaterThan(0.8);
   await page.mouse.up();
   await expect(page.locator('#error')).toBeHidden();
   expect(errors).toEqual([]);
