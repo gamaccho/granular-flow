@@ -14,11 +14,14 @@ test('fiber ribbons gain strong GPU motion in both swipe directions', async ({ p
   const swipe = async (start, end) => {
     const direction = Math.sign(end - start);
     await page.mouse.move(viewport.width * start, viewport.height * 0.5);
+    const primedAt = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
+    await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(primedAt);
     await page.mouse.down();
     // Readback stalls a software GPU. Complete a fast native stroke first,
     // then inspect its result once instead of slowing every movement sample.
     await page.mouse.move(viewport.width * end, viewport.height * 0.5);
-    await page.waitForTimeout(50);
+    const movedAt = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
+    await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(movedAt);
     const motion = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
     const peak = Math.max(...motion.map((sample) => sample.vx * direction));
     console.log(`GPU swipe ${direction > 0 ? 'right' : 'left'} peak: ${peak}`);

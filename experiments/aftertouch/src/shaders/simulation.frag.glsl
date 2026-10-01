@@ -43,7 +43,7 @@ void main() {
   vec2 direction = toward / max(distanceToTouch, 0.02);
   float swipeSpeed = length(u_pointer_velocity);
   float brushing = smoothstep(0.15, 1.1, swipeSpeed);
-  float brushRadius = mix(0.28, 0.50, smoothstep(0.2, 6.0, swipeSpeed));
+  float brushRadius = 0.8 * mix(0.28, 0.50, smoothstep(0.2, 6.0, swipeSpeed));
   float influence = exp(-distanceToTouch * distanceToTouch / (brushRadius * brushRadius)) * u_active;
   float burst = smoothstep(1.6, 2.8, u_particle_attraction);
   float orbit = 1.0 - smoothstep(0.08, 0.4, abs(u_particle_attraction - 0.5));
