@@ -1,5 +1,42 @@
 import { test, expect } from '@playwright/test';
 
+test('connected Pages uses the external proxy and displays a returned Jev decision', async ({ page }, testInfo) => {
+  test.skip(!process.env.AFTERTOUCH_CONNECTED_URL, 'Requires the connected Pages build.');
+  const apiBase = process.env.AFTERTOUCH_EXPECTED_API_BASE;
+  const requests = [];
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  // Intercept both APIs: CI checks the real build without using API credits.
+  await page.route('**/api/health', async (route) => {
+    requests.push(route.request());
+    await route.fulfill({ json: { provider: 'jev' } });
+  });
+  await page.route('**/api/infer-mood', async (route) => {
+    requests.push(route.request());
+    await route.fulfill({ json: { choice: 'playful', confidence: 0.9, source: 'jev', latencyMs: 95 } });
+  });
+  await page.goto(new URL('?debug=1', process.env.AFTERTOUCH_CONNECTED_URL).href);
+  await expect(page.locator('#error')).toBeHidden();
+  await expect(page.locator('.edition span')).toHaveText('01 / JEV');
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(5);
+  const viewport = page.viewportSize();
+  await page.mouse.move(viewport.width * 0.55, viewport.height * 0.55);
+  await page.mouse.down();
+  await expect(page.locator('#connection')).toContainText('Jev ·');
+  await expect(page.locator('#mode-label')).toHaveText('Playful');
+  const inference = requests.find((request) => request.method() === 'POST');
+  expect(requests[0].url()).toBe(`${apiBase}/api/health`);
+  expect(inference.url()).toBe(`${apiBase}/api/infer-mood`);
+  expect(Object.keys(inference.postDataJSON()).sort()).toEqual([
+    'curvature', 'duration', 'dwellRatio', 'jitter', 'sampleCount', 'speed', 'strokeLength',
+  ]);
+  await page.mouse.up();
+  if (testInfo.project.name === 'mobile') await page.touchscreen.tap(viewport.width * 0.5, viewport.height * 0.5);
+  await expect(page.locator('#intro')).toHaveClass(/has-touched/);
+  await page.screenshot({ path: testInfo.outputPath('pages-connected.png') });
+  expect(errors).toEqual([]);
+});
+
 test('static Pages preview loads assets under a subdirectory and responds without API requests', async ({ page }, testInfo) => {
   test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built Pages preview.');
   const errors = [];

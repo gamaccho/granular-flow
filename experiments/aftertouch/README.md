@@ -2,26 +2,32 @@
 
 触れる速度と軌跡に応じて、粒子の流れと光が変化するThree.js作品です。Node.jsプロキシがTypeSafe Jevへ集約したジェスチャー指標を送り、型付きChoice結果を返します。APIキーを設定していない状態でも、ローカル判定で作品を操作できます。
 
-`gamaccho/granular-flow` の `experiments/aftertouch` に保存したテスト実装です。[GitHub Pagesの公開テスト](https://gamaccho.github.io/granular-flow/aftertouch001/)はローカル判定で動作します。Jevプロキシの公開ホスティングとギャラリー掲載はまだ設定していません。リポジトリのルートから使う場合は、先に `cd experiments/aftertouch` でこのフォルダーへ移動してください。
+`gamaccho/granular-flow` の `experiments/aftertouch` に保存したテスト実装です。[GitHub Pagesの公開テスト](https://gamaccho.github.io/granular-flow/aftertouch001/)からRenderのJevプロキシへ接続します。遅延・失敗時はローカル判定で動作します。ギャラリーにはまだ掲載していません。リポジトリのルートから使う場合は、先に `cd experiments/aftertouch` でこのフォルダーへ移動してください。
 
 ## GitHub Pagesの公開テスト
 
 公開先：**https://gamaccho.github.io/granular-flow/aftertouch001/**
 
-画面には「01 / PREVIEW」「公開テスト · ローカル判定（Jevなし）」と表示します。動きに応じた描画と分類はブラウザー内で行い、APIリクエストは送りません。サーバーやAPIキーを公開ファイルに含めません。
+画面には「01 / JEV」と表示します。動きに応じた描画とローカル判定を続けながら、集約した7項目のジェスチャー指標を `https://aftertouch-jev-proxy.onrender.com` へ送ります。実際のJev応答が返った場合だけ、左下に「Jev · ジェスチャー判定」と表示します。遅延・失敗時は理由付きのローカル判定を表示します。サーバーやAPIキーを公開ファイルに含めません。
 
 ```sh
 npm ci
 npm run build:pages
 ```
 
+`.env.pages` に公開可能な接続先URLだけを保存しています。通信なしのプレビュー版を作る場合は `VITE_JEV_API_BASE= npm run build:pages` を実行してください。その版には「01 / PREVIEW」「公開テスト · ローカル判定（Jevなし）」と表示します。
+
 生成された `dist` の内容をリポジトリの `aftertouch001/` に配置し、mainへ反映するとPagesで配信されます。アセットは相対URLなので、リポジトリのサブディレクトリから読み込めます。`VITE_JEV_API_BASE` が空の通常の `npm run dev` / `npm run build` では、従来どおり同じオリジンのプロキシへ接続します。
 
 配信したビルドのブラウザーテストは、ローカルの静的HTTPサーバーまたは公開先を指定して実行できます。
 
 ```sh
-AFTERTOUCH_PREVIEW_URL=https://gamaccho.github.io/granular-flow/aftertouch001/ npm run test:browser -- --grep 'static Pages preview'
+AFTERTOUCH_CONNECTED_URL=https://gamaccho.github.io/granular-flow/aftertouch001/ \
+AFTERTOUCH_EXPECTED_API_BASE=https://aftertouch-jev-proxy.onrender.com \
+npm run test:browser -- --grep 'connected Pages'
 ```
+
+上記テストはhealthと推論をブラウザー内で置き換え、ビルド済みクライアントの接続先と表示を検証します。実APIの成功確認とは別で、テストからAPI費用は発生しません。通信なし版の確認は、その版を配信したURLを `AFTERTOUCH_PREVIEW_URL` に指定し、`--grep 'static Pages preview'` で実行します。
 
 モバイル表示の自動検証はChromeの端末エミュレーションです。iPhone実機のSafariでの速度・表示は別途確認してください。
 
@@ -41,7 +47,7 @@ AFTERTOUCH_PREVIEW_URL=https://gamaccho.github.io/granular-flow/aftertouch001/ n
 VITE_JEV_API_BASE=https://YOUR-SERVICE.onrender.com npm run build:pages
 ```
 
-上記URLは書式の例です。実際に発行されたHTTPSのオリジンだけを使用し、パス、クエリー、認証情報を含めません。これは公開可能な接続先設定で、APIキーとは別です。URL未設定のPagesビルドは通信なしの公開テスト版を維持します。
+上記URLは書式の例です。実際に発行されたHTTPSのオリジンだけを使用し、パス、クエリー、認証情報を含めません。これは公開可能な接続先設定で、APIキーとは別です。このリポジトリでは `.env.pages` に公開プロキシURLを保存済みです。`VITE_JEV_API_BASE=` を明示してビルドすると通信なし版になります。
 
 GitHub Pagesからの接続許可は `ALLOWED_ORIGINS=https://gamaccho.github.io` に限定します。ブラウザーにAPIキーを渡しません。外部プロキシへの応答期限は1500ms、同じオリジンのローカル開発は従来どおり300msです。上流Jevへの期限は270msを維持し、待機中もローカル判定と描画を続けます。
 
@@ -95,7 +101,7 @@ npm start
 | `JEV_MOCK` | `true` の場合だけ明示的モック。上流へ通信しません |
 | `ALLOWED_ORIGINS` | 分離ホスティング時の許可オリジン。カンマ区切り |
 | `TRUST_PROXY` | 既定 `false`。信頼できるリバースプロキシの後ろでのみ、構成に合うホップ数・IP範囲を指定 |
-| `VITE_JEV_API_BASE` | ビルド時に埋め込む公開プロキシのHTTPSオリジン。APIキーは設定しません。空なら通常版は同一オリジン、Pages版は通信なし |
+| `VITE_JEV_API_BASE` | ビルド時に埋め込む公開プロキシのHTTPSオリジン。Pagesでは `.env.pages` の値を使用。空を明示すればPages版は通信なし、通常版は同一オリジン。APIキーは設定しません |
 
 `JEV_MOCK=true npm run dev` でキーを使わず接続経路を試せます。画面にはMOCKと表示します。Jevとして表示するのは実際に検証済みの上流応答が返った場合だけです。
 
@@ -183,3 +189,5 @@ npm run test:browser
 2026-10-01に実キーを設定したローカルプロキシを経由し、Jev実APIから `choice: "tender"`、`confidence: 0.66`、`source: "jev"` の応答を確認しました。成功時のプロキシ処理時間は166msでした。初回は270msの期限を超えてローカル判定に戻っています。この単発の成功は通信速度の保証や判定品質の評価ではありません。APIキーと `.env` はリポジトリに含めていません。
 
 認証エラー表示を追加した後のローカル確認では、ビルドと入力・クライアント9件は成功しています。HTTPテスト14件の再実行は、作業環境のポート待受制限により実行できませんでした。このフォルダーの変更時はGitHub Actionsの **AFTERTOUCH checks** が、実キーを使わず `npm ci`、`npm test`、`npm run build` を実行します。スマートフォン実機の速度と判定品質は未検証です。
+
+2026-10-01に公開Renderプロキシを確認しました。GitHub Pagesのオリジンに対するCORS preflightは204、許可オリジンは `https://gamaccho.github.io` でした。実推論では初めの2回が期限超過でローカル判定になり、3回目に `choice: "tender"`、`confidence: 0.62`、`source: "jev"`、プロキシ処理時間253msの応答を確認しました。通信の成功は確認していますが、毎回の成功や応答時間は保証していません。

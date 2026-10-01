@@ -36,17 +36,22 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npm run build:pages
-      - name: Build connected Pages client
+      - name: Build offline Pages preview
         env:
-          VITE_JEV_API_BASE: https://aftertouch-proxy.example
-        run: npm run build:pages -- --outDir dist-connected
+          VITE_JEV_API_BASE: ''
+        run: npm run build:pages -- --outDir dist-preview
+      - name: Build connected Pages client
+        run: npm run build:pages
       - run: npx playwright install --with-deps chromium
-      - name: Check Pages preview on desktop and mobile
+      - name: Check offline and connected Pages on desktop and mobile
         env:
           AFTERTOUCH_PREVIEW_URL: http://127.0.0.1:5181/aftertouch001/
+          AFTERTOUCH_CONNECTED_URL: http://127.0.0.1:5181/aftertouch-connected/
+          AFTERTOUCH_EXPECTED_API_BASE: https://aftertouch-jev-proxy.onrender.com
         run: |
           mkdir -p "$RUNNER_TEMP/aftertouch-pages-check/aftertouch001"
-          cp -R dist/. "$RUNNER_TEMP/aftertouch-pages-check/aftertouch001/"
+          mkdir -p "$RUNNER_TEMP/aftertouch-pages-check/aftertouch-connected"
+          cp -R dist-preview/. "$RUNNER_TEMP/aftertouch-pages-check/aftertouch001/"
+          cp -R dist/. "$RUNNER_TEMP/aftertouch-pages-check/aftertouch-connected/"
           python3 -m http.server 5181 --bind 127.0.0.1 --directory "$RUNNER_TEMP/aftertouch-pages-check" > "$RUNNER_TEMP/aftertouch-pages-http.log" 2>&1 &
-          npm run test:browser -- --grep 'static Pages preview'
+          npm run test:browser -- --grep 'static Pages preview|connected Pages'
