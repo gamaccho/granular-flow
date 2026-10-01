@@ -6,6 +6,8 @@
 
 ## GitHub Pagesの公開テスト
 
+SNS共有・画面収録用の [作品だけの表示](https://gamaccho.github.io/granular-flow/aftertouch001/?view=shoal&clean=1) は `clean=1` を指定します。タイトル、説明、判定、接続表示、操作ボタン、デバッグ表示、マウスカーソルを隠し、タッチ反応は通常版と共通です。PCのSpace（一時停止）、R（リセット）、F（全画面）は利用できます。URLから `clean=1` を外すと通常表示へ戻ります。
+
 立体の渦の試作は [02 / SHOAL](https://gamaccho.github.io/granular-flow/aftertouch001/?view=shoal) で開けます。通常のURLは従来の平面版を保ちます。立体版はGPU上でXYZ位置・速度を更新し、空洞のある渦を透視投影します。ゆっくり変わる視点と前後の明暗で奥行きを表現し、指の動きを画面から立体空間へ変換して毛足をなびかせます。光の繊維による表現で、魚の形や個体間の群れ行動を再現するモデルではありません。Jev接続・ローカル判定は共通です。自動検証はデスクトップとモバイル比率のChromiumで行い、iPhone実機の描画速度は未検証です。
 
 公開先：**https://gamaccho.github.io/granular-flow/aftertouch001/**
