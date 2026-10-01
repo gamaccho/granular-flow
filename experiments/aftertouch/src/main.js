@@ -165,7 +165,7 @@ const debug = new URLSearchParams(location.search).has('debug');
 const debugPanel = document.querySelector('#debug');
 debugPanel.hidden = !debug;
 if (debug) window.__AFTERTOUCH__ = {
-  snapshot: () => ({ mood, source, paused, fps: Math.round(fps), particles: flow?.count, quality: flow?.quality, frames: qualityFrames, simulationTime: flow?.time, values: { turbulence: values.turbulence, decay: values.decay, paletteBlend: values.paletteBlend, attraction: values.attraction }, metrics: tracker.snapshot() }),
+  snapshot: () => ({ mood, source, paused, fps: Math.round(fps), particles: flow?.count, quality: flow?.quality, frames: qualityFrames, simulationTime: flow?.time, pointer: { x: pointer.x, y: pointer.y, vx: pointer.vx, vy: pointer.vy, active: pointer.active, inside: pointer.inside }, values: { turbulence: values.turbulence, decay: values.decay, paletteBlend: values.paletteBlend, attraction: values.attraction }, metrics: tracker.snapshot() }),
   sampleMotion: () => flow?.sampleMotion(),
 };
 
