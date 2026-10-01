@@ -8,8 +8,12 @@ const canvas = document.querySelector('#art');
 const errorPanel = document.querySelector('#error');
 const connection = document.querySelector('#connection');
 const tracker = new GestureTracker();
-const client = new JevClient({ staticPreview: import.meta.env.VITE_STATIC_PREVIEW === true });
+const client = new JevClient({
+  staticPreview: import.meta.env.VITE_STATIC_PREVIEW === true,
+  apiBase: import.meta.env.VITE_JEV_API_BASE ?? '',
+});
 if (client.provider === 'preview') document.querySelector('.edition span').textContent = '01 / PREVIEW';
+else if (client.apiBase) document.querySelector('.edition span').textContent = '01 / JEV';
 const colors = { hesitant: '#8ec9ed', aggressive: '#f56751', tender: '#eab073', playful: '#b88bff' };
 const values = { ...MODES.tender };
 let target = MODES.tender;

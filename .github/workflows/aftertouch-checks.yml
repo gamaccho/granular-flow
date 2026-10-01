@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - 'experiments/aftertouch/**'
+      - 'render.yaml'
       - '.github/workflows/aftertouch-checks.yml'
   pull_request:
     paths:
       - 'experiments/aftertouch/**'
+      - 'render.yaml'
       - '.github/workflows/aftertouch-checks.yml'
   workflow_dispatch:
 
@@ -35,6 +37,10 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run build:pages
+      - name: Build connected Pages client
+        env:
+          VITE_JEV_API_BASE: https://aftertouch-proxy.example
+        run: npm run build:pages -- --outDir dist-connected
       - run: npx playwright install --with-deps chromium
       - name: Check Pages preview on desktop and mobile
         env:

@@ -1,16 +1,32 @@
 import { classifyGesture, isMood } from '../../shared/mood.js';
 
+export function normalizeApiBase(value = '') {
+  const message = 'apiBase must be an HTTPS origin without credentials, path, query or fragment.';
+  if (typeof value !== 'string') throw new TypeError(message);
+  const base = value.trim();
+  if (!base) return '';
+  let url;
+  try { url = new URL(base); } catch { throw new TypeError(message); }
+  if (!/^https:\/\/[^/?#\\\s@]+\/?$/i.test(base) || url.protocol !== 'https:'
+      || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw new TypeError(message);
+  }
+  return url.origin;
+}
+
 export class JevClient {
-  constructor({ fetchImpl = globalThis.fetch.bind(globalThis), now = () => performance.now(), timeoutMs = 300, staticPreview = false } = {}) {
+  constructor({ fetchImpl = globalThis.fetch.bind(globalThis), now = () => performance.now(), timeoutMs, staticPreview = false, apiBase = '' } = {}) {
+    this.apiBase = normalizeApiBase(apiBase);
     this.fetch = fetchImpl;
     this.now = now;
-    this.timeoutMs = timeoutMs;
+    this.timeoutMs = timeoutMs ?? (this.apiBase ? 1500 : 300);
     this.lastRequest = -Infinity;
     this.blockedUntil = 0;
     this.requests = [];
     this.controller = null;
-    this.enabled = !staticPreview;
-    this.provider = staticPreview ? 'preview' : 'checking';
+    const preview = staticPreview && !this.apiBase;
+    this.enabled = !preview;
+    this.provider = preview ? 'preview' : 'checking';
   }
 
   async checkHealth() {
@@ -18,7 +34,7 @@ export class JevClient {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1500);
     try {
-      const response = await this.fetch('/api/health', { signal: controller.signal });
+      const response = await this.fetch(`${this.apiBase}/api/health`, { signal: controller.signal, credentials: 'omit' });
       const data = await response.json();
       if (!response.ok || !['jev', 'mock', 'heuristic'].includes(data.provider)) throw new Error('health');
       this.provider = data.provider;
@@ -48,11 +64,12 @@ export class JevClient {
     try {
       // Race protects the deadline even with a transport that ignores abort.
       const request = (async () => {
-        const response = await this.fetch('/api/infer-mood', {
+        const response = await this.fetch(`${this.apiBase}/api/infer-mood`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(metrics),
           signal: controller.signal,
+          credentials: 'omit',
         });
         if (response.status === 429) {
           const retryAfter = Number(response.headers.get('Retry-After'));

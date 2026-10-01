@@ -15,7 +15,7 @@ npm ci
 npm run build:pages
 ```
 
-生成された `dist` の内容をリポジトリの `aftertouch001/` に配置し、mainへ反映するとPagesで配信されます。アセットは相対URLなので、リポジトリのサブディレクトリから読み込めます。通常の `npm run dev` / `npm run build` では、従来どおりプロキシへ接続します。
+生成された `dist` の内容をリポジトリの `aftertouch001/` に配置し、mainへ反映するとPagesで配信されます。アセットは相対URLなので、リポジトリのサブディレクトリから読み込めます。`VITE_JEV_API_BASE` が空の通常の `npm run dev` / `npm run build` では、従来どおり同じオリジンのプロキシへ接続します。
 
 配信したビルドのブラウザーテストは、ローカルの静的HTTPサーバーまたは公開先を指定して実行できます。
 
@@ -24,6 +24,30 @@ AFTERTOUCH_PREVIEW_URL=https://gamaccho.github.io/granular-flow/aftertouch001/ n
 ```
 
 モバイル表示の自動検証はChromeの端末エミュレーションです。iPhone実機のSafariでの速度・表示は別途確認してください。
+
+## RenderでJevプロキシを公開
+
+[Renderの設定済み作成画面を開く](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fgamaccho%2Fgranular-flow)
+
+リポジトリのルートの `render.yaml` が、`aftertouch-jev-proxy` のWeb Serviceを定義しています。Freeプラン、Singapore、Node.js 22、対象フォルダー `experiments/aftertouch`、依存導入 `npm ci --omit=dev`、起動 `npm start`、health check `/api/health` を設定済みです。データベースやディスクは作成しません。
+
+1. 上記リンクをRenderへログイン済みのブラウザーで開きます。
+2. サービスとFreeプランを確認し、`TYPESAFE_API_KEY` の入力欄に有効なTypeSafe APIキーを入力します。キーはRender内で保管し、リポジトリやチャットに貼りません。
+3. Deploy後、サービスがLiveになるのを確認し、ダッシュボードに表示される公開URLを控えます。ホスト名はRenderが割り当てるため、名前から推測しません。
+4. 公開URLの `/api/health` がJSONを返すことを確認します。`provider: "jev"` はキー設定済みという意味です。実接続の確認には、推論応答の `source: "jev"` を確認してください。
+5. 公開URLを `VITE_JEV_API_BASE` として指定してPages用フロントを再ビルドし、`aftertouch001/` に反映します。
+
+```sh
+VITE_JEV_API_BASE=https://YOUR-SERVICE.onrender.com npm run build:pages
+```
+
+上記URLは書式の例です。実際に発行されたHTTPSのオリジンだけを使用し、パス、クエリー、認証情報を含めません。これは公開可能な接続先設定で、APIキーとは別です。URL未設定のPagesビルドは通信なしの公開テスト版を維持します。
+
+GitHub Pagesからの接続許可は `ALLOWED_ORIGINS=https://gamaccho.github.io` に限定します。ブラウザーにAPIキーを渡しません。外部プロキシへの応答期限は1500ms、同じオリジンのローカル開発は従来どおり300msです。上流Jevへの期限は270msを維持し、待機中もローカル判定と描画を続けます。
+
+このBlueprintは自動デプロイを無効にしています。プロキシのコードを更新した際は、RenderのManual Deployで反映してください。Freeサービスは無通信が15分続くと休止し、復帰に約1分かかります。復帰中は作品がローカル判定で動きます。[Render公式の制約](https://render.com/docs/free)
+
+現在は `TRUST_PROXY=false` のため、Renderの中継IPが同じ接続は30回/分の制限を共有する場合があります。試験公開では保守的な設定を維持し、複数利用者向けに運用する段階でRenderの転送ヘッダーと経路を確認して調整します。CORSは利用者の認証ではありません。
 
 ## 起動
 
@@ -71,10 +95,11 @@ npm start
 | `JEV_MOCK` | `true` の場合だけ明示的モック。上流へ通信しません |
 | `ALLOWED_ORIGINS` | 分離ホスティング時の許可オリジン。カンマ区切り |
 | `TRUST_PROXY` | 既定 `false`。信頼できるリバースプロキシの後ろでのみ、構成に合うホップ数・IP範囲を指定 |
+| `VITE_JEV_API_BASE` | ビルド時に埋め込む公開プロキシのHTTPSオリジン。APIキーは設定しません。空なら通常版は同一オリジン、Pages版は通信なし |
 
 `JEV_MOCK=true npm run dev` でキーを使わず接続経路を試せます。画面にはMOCKと表示します。Jevとして表示するのは実際に検証済みの上流応答が返った場合だけです。
 
-IP制限は**単一Node.jsプロセスのメモリー**で管理し、再起動でリセットされます。複数インスタンスで公開する場合は、同等の制限を共有ストアまたはエッジ側へ移してください。公開先へのデプロイはこの実装には含めていません。
+IP制限は**単一Node.jsプロセスのメモリー**で管理し、再起動でリセットされます。複数インスタンスで公開する場合は、同等の制限を共有ストアまたはエッジ側へ移してください。Render用の作成設定を含みますが、実際のサービス作成にはログイン済みのRenderでAPIキーを入力してください。
 
 ## 構成
 
@@ -135,7 +160,7 @@ Vite標準の配置に合わせ、仕様の `public/index.html` はルートの 
 
 - クライアントの判定トリガーは最低800ms間隔です。実際の上流呼び出しは**最低2100ms間隔**にし、30回／分以内を継続できるようにします。途中もローカル判定・描画は続きます。
 - プロキシはIP別の**直近60秒で最大30回**を制限します。既定で偽装された `X-Forwarded-For` を信頼しません。
-- 上流の読み込み・JSON処理を含めて270msで中断し、ブラウザーは300msでローカル判定に戻ります。同時リクエストや無制限再試行をしません。
+- 上流の読み込み・JSON処理を含めて270msで中断し、ブラウザーは同じオリジンでは300ms、外部プロキシでは1500msでローカル判定に戻ります。同時リクエストや無制限再試行をしません。
 - 60fpsの描画ループは推論を待たず、ポインターの物理作用は各フレームで反映します。ターゲット値は `current += (target - current) * min(1, deltaTime * 2.5)` で補間します。
 - API推論の100ms未満、実機の60fpsは保証していません。通信環境やGPU性能に依存します。
 

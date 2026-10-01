@@ -1,0 +1,30 @@
+# Deploy only the Jev proxy. The artwork remains on GitHub Pages.
+# Secret values are entered in Render, never committed to this repository.
+services:
+  - type: web
+    name: aftertouch-jev-proxy
+    runtime: node
+    plan: free
+    region: singapore
+    repo: https://github.com/gamaccho/granular-flow
+    branch: main
+    rootDir: experiments/aftertouch
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TYPESAFE_API_KEY
+        sync: false
+      - key: JEV_MODEL
+        value: jev-latest
+      - key: JEV_MOCK
+        value: "false"
+      - key: ALLOWED_ORIGINS
+        value: https://gamaccho.github.io
+      - key: TRUST_PROXY
+        value: "false"

@@ -4,7 +4,7 @@
 
 | 実装 | 内容 | 現在の状態 |
 | --- | --- | --- |
-| [AFTERTOUCH](aftertouch/README.md) | Three.jsのGPU粒子描画とTypeSafe Jevによるジェスチャー分類 | [Pages公開テスト](https://gamaccho.github.io/granular-flow/aftertouch001/)はローカル判定で動作。Jev接続は開発用プロキシで確認 |
+| [AFTERTOUCH](aftertouch/README.md) | Three.jsのGPU粒子描画とTypeSafe Jevによるジェスチャー分類 | [Pages公開テスト](https://gamaccho.github.io/granular-flow/aftertouch001/)はローカル判定で動作。[Render作成設定](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2Fgamaccho%2Fgranular-flow)を用意。公開プロキシの作成・接続は次の段階 |
 
 ## 今後の運用
 
