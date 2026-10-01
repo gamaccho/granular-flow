@@ -1,5 +1,17 @@
 import { test, expect } from '@playwright/test';
 
+// Keep gesture timing independent of software-GPU stalls between protocol calls.
+// Native pointerdown establishes capture; paired moves in one task supply a fast
+// brush, whose effect is then checked in the actual GPU state after rendering.
+async function fastBrush(page, start, end, y) {
+  await page.evaluate(({ start, end, y }) => {
+    const canvas = document.querySelector('#art');
+    for (const x of [start, end]) canvas.dispatchEvent(new PointerEvent('pointermove', {
+      pointerId: 1, pointerType: 'mouse', isPrimary: true, buttons: 1, clientX: x, clientY: y,
+    }));
+  }, { start, end, y });
+}
+
 test('spatial shoal has moving depth, responds to brushing, and recovers after reset and resize', async ({ page }, testInfo) => {
   test.setTimeout(60000);
   test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
@@ -25,7 +37,7 @@ test('spatial shoal has moving depth, responds to brushing, and recovers after r
   const primed = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(primed);
   await page.mouse.down();
-  await page.mouse.move(viewport.width / 2 + span, viewport.height / 2);
+  await fastBrush(page, viewport.width / 2 - span, viewport.width / 2 + span, viewport.height / 2);
   const brushed = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(brushed);
   const motion = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
@@ -62,9 +74,7 @@ test('fiber ribbons gain strong GPU motion in both swipe directions', async ({ p
     const primedAt = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
     await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(primedAt);
     await page.mouse.down();
-    // Readback stalls a software GPU. Complete a fast native stroke first,
-    // then inspect its result once instead of slowing every movement sample.
-    await page.mouse.move(viewport.width * end, viewport.height * 0.5);
+    await fastBrush(page, viewport.width * start, viewport.width * end, viewport.height * 0.5);
     const movedAt = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
     await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(movedAt);
     const motion = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
