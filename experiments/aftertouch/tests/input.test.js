@@ -85,7 +85,7 @@ test('slow repeated curves trigger playful independently of sampling rate, then 
     const tracker = new GestureTracker();
     for (let t = 0; t <= 2400; t += interval) {
       const angle = t / 2400 * Math.PI * 2;
-      tracker.record(100 + 18 * Math.cos(angle), 100 + 18 * Math.sin(angle), t);
+      tracker.record(100 + 26 * Math.cos(angle), 100 + 26 * Math.sin(angle), t);
     }
     assert.ok(tracker.snapshot(2400).speed < 0.12);
     assert.equal(tracker.hasPlayfulCurves(2400), true);
@@ -110,8 +110,27 @@ test('straight strokes, tiny jitter and reversals do not count as playful curves
 
 test('a fast swipe interrupts the slow-curve playful hold', () => {
   const tracker = new GestureTracker();
-  for (let t = 0; t <= 2400; t += 40) tracker.record(18 * Math.cos(t / 2400 * Math.PI * 2), 18 * Math.sin(t / 2400 * Math.PI * 2), t);
+  for (let t = 0; t <= 2400; t += 40) tracker.record(26 * Math.cos(t / 2400 * Math.PI * 2), 26 * Math.sin(t / 2400 * Math.PI * 2), t);
   assert.equal(tracker.hasPlayfulCurves(2400), true);
   tracker.record(900, 0, 2440);
   assert.equal(tracker.hasPlayfulCurves(2440), false);
+});
+
+
+test('very slow curves no longer trigger and old curves cannot renew during a straight stroke', () => {
+  const verySlow = new GestureTracker();
+  const deliberate = new GestureTracker();
+  for (let t = 0; t <= 2400; t += 40) {
+    const angle = t / 2400 * Math.PI * 2;
+    verySlow.record(18 * Math.cos(angle), 18 * Math.sin(angle), t);
+    deliberate.record(26 * Math.cos(angle), 26 * Math.sin(angle), t);
+  }
+  assert.equal(verySlow.hasPlayfulCurves(2400), false);
+  assert.equal(deliberate.hasPlayfulCurves(2400), true);
+  // Continue along the circle's final tangent: movement alone must not extend it.
+  for (let t = 2440; t <= 3800; t += 40) {
+    deliberate.record(26, (t - 2400) * 0.08, t);
+    deliberate.hasPlayfulCurves(t);
+  }
+  assert.equal(deliberate.hasPlayfulCurves(3800), false);
 });

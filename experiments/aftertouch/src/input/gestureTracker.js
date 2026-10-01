@@ -1,4 +1,8 @@
 const WINDOW_MS = 600;
+// Restore 40% of the previous relaxation: 2400→1680ms, 0.018→0.0588px/ms.
+const CURVE_WINDOW_MS = 1680;
+const CURVE_MIN_SPEED = 0.0588;
+const CURVE_HOLD_MS = 1080;
 const STILL_SPEED = 0.04; // CSS pixels per millisecond
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const round = (value) => Math.round(value * 10000) / 10000;
@@ -8,6 +12,7 @@ export class GestureTracker {
     this.history = [];
     this.curveHistory = [];
     this.playfulUntil = -Infinity;
+    this.lastCurveTrigger = -Infinity;
     this.now = now;
     this.lastTrigger = -Infinity;
     this.debounceMs = Math.max(800, debounceMs);
@@ -26,7 +31,7 @@ export class GestureTracker {
     // Spatially spaced samples keep slow curves independent of input/frame rate.
     const lastCurve = this.curveHistory.at(-1);
     if (!lastCurve || Math.hypot(x - lastCurve.x, y - lastCurve.y) >= 3) this.curveHistory.push({ x, y, t });
-    while (this.curveHistory.length && this.curveHistory[0].t < t - 2400) this.curveHistory.shift();
+    while (this.curveHistory.length && this.curveHistory[0].t < t - CURVE_WINDOW_MS) this.curveHistory.shift();
     // Retain one boundary point to interpolate the entire sliding window.
     while (this.history.length > 2 && this.history[1].t <= t - WINDOW_MS) this.history.shift();
     if (this.history.length > 1000) this.history.splice(0, this.history.length - 1000);
@@ -97,11 +102,12 @@ export class GestureTracker {
   }
 
   hasPlayfulCurves(t = this.now()) {
-    const points = this.curveHistory.filter((point) => point.t >= t - 2400);
+    const points = this.curveHistory.filter((point) => point.t >= t - CURVE_WINDOW_MS);
     let length = 0;
     let turning = 0;
     let bends = 0;
     let angle = null;
+    let lastBendTime = -Infinity;
     for (let i = 1; i < points.length; i += 1) {
       const dx = points[i].x - points[i - 1].x;
       const dy = points[i].y - points[i - 1].y;
@@ -110,14 +116,18 @@ export class GestureTracker {
       if (angle !== null) {
         const turn = Math.abs(Math.atan2(Math.sin(nextAngle - angle), Math.cos(nextAngle - angle)));
         // Exclude back-and-forth reversals and tiny tracking noise.
-        if (turn > 0.06 && turn < 1.8) { turning += turn; bends += 1; }
+        if (turn > 0.06 && turn < 1.8) { turning += turn; bends += 1; lastBendTime = points[i].t; }
       }
       angle = nextAngle;
     }
     const speed = this.snapshot(t).speed;
     if (speed > 0.95) { this.playfulUntil = -Infinity; return false; }
-    if (points.length >= 5 && t - points.at(-1).t < 300 && speed >= 0.018
-        && length >= 32 && bends >= 3 && turning >= 1.8) this.playfulUntil = t + 1800;
+    if (points.length >= 5 && t - lastBendTime < 300 && speed >= CURVE_MIN_SPEED
+        && length >= 32 && bends >= 3 && turning >= 1.8 && lastBendTime > this.lastCurveTrigger) {
+      // Old curves must not keep renewing Playful during a subsequent straight stroke.
+      this.lastCurveTrigger = lastBendTime;
+      this.playfulUntil = lastBendTime + CURVE_HOLD_MS;
+    }
     return t < this.playfulUntil;
   }
 
@@ -125,5 +135,6 @@ export class GestureTracker {
     this.history.length = 0;
     this.curveHistory.length = 0;
     this.playfulUntil = -Infinity;
+    this.lastCurveTrigger = -Infinity;
   }
 }
