@@ -40,8 +40,11 @@ void main() {
   field += vec2(sin(phase * 5.0 + u_time * 0.25), cos(phase * 4.0 - u_time * 0.19)) * 0.018;
   // Affect the whole swept segment, including gaps between sparse touch events.
   vec2 stroke = u_pointer - u_pointer_previous;
-  float alongStroke = clamp(dot(p - u_pointer_previous, stroke) / max(dot(stroke, stroke), 0.00001), 0.0, 1.0);
-  vec2 toward = mix(u_pointer_previous, u_pointer, alongStroke) - p;
+  // Once stretched, the tip remains catchable by the moving fingertip. This
+  // carries the same narrow bundle beyond the original contact patch.
+  vec2 tip = p + velocity * 0.16;
+  float alongStroke = clamp(dot(tip - u_pointer_previous, stroke) / max(dot(stroke, stroke), 0.00001), 0.0, 1.0);
+  vec2 toward = mix(u_pointer_previous, u_pointer, alongStroke) - tip;
   float distanceToTouch = length(toward);
   vec2 direction = toward / max(distanceToTouch, 0.02);
   float swipeSpeed = length(u_pointer_velocity);
@@ -57,21 +60,24 @@ void main() {
   touchForce += vec2(-direction.y, direction.x) * orbit * 0.65;
   vec2 rootDrift = field + touchForce * influence * (1.0 - brushing) * 0.12;
   field += touchForce * influence * (1.0 - brushing * 0.9);
-  vec2 combDirection = u_pointer_velocity / max(swipeSpeed, 0.001);
-  vec2 combVelocity = combDirection * min(swipeSpeed * 0.9, 3.4) + field * 0.06;
+  // Store a root-to-finger stretch, rather than a speed-limited hair length.
+  // The cap exceeds a full viewport drag, so the strand does not stop halfway.
+  vec2 combVelocity = (u_pointer - p) / 0.16;
+  combVelocity *= min(1.0, 20.0 / max(length(combVelocity), 0.001));
   // A decaying pointer after release is not a new brush stroke. Preserve the
   // stretched fiber until actual movement returns, rather than overwriting it
   // with the slowing pointer at the end of a gesture.
   float movingContact = u_contact * step(0.0000001, dot(stroke, stroke));
   float combing = min(influence * brushing * movingContact, 0.98);
-  field = mix(field, combVelocity, combing);
   // Keep the combed direction as elastic memory instead of throwing the root.
   // Strongly stretched fibers relax over seconds, while untouched fibers retain
   // the original flow. Contact can still redirect a remembered fiber immediately.
   float stretched = smoothstep(0.30, 0.75, length(velocity));
   float relaxation = mix(4.0, 0.22, stretched);
-  velocity = mix(velocity, field, min(1.0, u_dt * (relaxation + combing * 30.0)));
-  velocity *= pow(mix(u_decay, 0.996, stretched), u_dt * 20.0);
+  velocity = mix(velocity, field, min(1.0, u_dt * relaxation));
+  velocity = mix(velocity, combVelocity, combing);
+  float remembered = smoothstep(0.30, 0.75, length(velocity));
+  velocity *= pow(mix(u_decay, 0.996, remembered), u_dt * 20.0);
   p += rootDrift * u_dt;
   if (length(p) > 1.65) {
     float angle = seed * 6.2831853 + u_time * 0.1;
