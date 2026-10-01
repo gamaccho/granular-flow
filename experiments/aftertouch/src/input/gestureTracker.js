@@ -27,7 +27,10 @@ export class GestureTracker {
   }
 
   shouldEvaluate(t = this.now()) {
-    return this.history.length > 5 && t - this.lastTrigger >= this.debounceMs;
+    // A slow renderer may produce fewer than six samples in the 600ms window.
+    // Wait for a short observed duration instead of requiring a frame count.
+    return this.history.length >= 2 && t - this.history[0].t >= 120
+      && t - this.lastTrigger >= this.debounceMs;
   }
 
   getMetrics(t = this.now()) {

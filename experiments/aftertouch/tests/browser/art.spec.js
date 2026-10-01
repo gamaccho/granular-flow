@@ -12,23 +12,28 @@ test('fiber ribbons gain strong GPU motion in both swipe directions', async ({ p
   expect(Math.max(...idle.map((sample) => Math.hypot(sample.vx, sample.vy)))).toBeLessThan(0.6);
   const viewport = page.viewportSize();
   const swipe = async (start, end) => {
+    const direction = Math.sign(end - start);
+    let peak = 0;
     await page.mouse.move(viewport.width * start, viewport.height * 0.5);
     await page.mouse.down();
     for (let i = 1; i <= 8; i += 1) {
       await page.mouse.move(viewport.width * (start + (end - start) * i / 8), viewport.height * 0.5);
       await page.waitForTimeout(40);
+      // Measure while the stroke is active; after stopping, fibers relax naturally.
+      const motion = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
+      peak = Math.max(peak, ...motion.map((sample) => sample.vx * direction));
     }
+    console.log(`GPU swipe ${direction > 0 ? 'right' : 'left'} peak: ${peak}`);
+    return peak;
   };
-  await swipe(0.18, 0.82);
-  await expect.poll(() => page.evaluate(() => Math.max(...window.__AFTERTOUCH__.sampleMotion().map((sample) => sample.vx)))).toBeGreaterThan(0.8);
+  expect(await swipe(0.18, 0.82)).toBeGreaterThan(0.8);
   await page.mouse.up();
   await page.locator('#pause').click();
   await expect(page.locator('#pause')).toHaveAttribute('aria-label', '再生');
   await page.screenshot({ path: testInfo.outputPath('fibers-swipe-right.png') });
   await page.locator('#reset').click();
   await page.locator('#pause').click();
-  await swipe(0.82, 0.18);
-  await expect.poll(() => page.evaluate(() => Math.min(...window.__AFTERTOUCH__.sampleMotion().map((sample) => sample.vx)))).toBeLessThan(-0.8);
+  expect(await swipe(0.82, 0.18)).toBeGreaterThan(0.8);
   await page.mouse.up();
   await expect(page.locator('#error')).toBeHidden();
   expect(errors).toEqual([]);

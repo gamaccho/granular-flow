@@ -64,3 +64,18 @@ test('four gesture qualities map correctly and interpolation does not jump or ov
   assert.ok(next > 0.4 && next < 0.5);
   assert.equal(smoothValue(0.4, 2.5, 10), 2.5);
 });
+
+test('sparse sampling can trigger inference without bypassing debounce or accepting a lone point', () => {
+  const tracker = new GestureTracker();
+  tracker.record(0, 0, 0);
+  assert.equal(tracker.shouldEvaluate(500), false);
+  tracker.record(60, 0, 100);
+  assert.equal(tracker.shouldEvaluate(100), false);
+  tracker.record(120, 0, 400);
+  assert.equal(tracker.shouldEvaluate(400), true);
+  assert.equal(tracker.getMetrics(400).sampleCount, 3);
+  tracker.record(180, 0, 800);
+  assert.equal(tracker.shouldEvaluate(800), false);
+  tracker.record(240, 0, 1200);
+  assert.equal(tracker.shouldEvaluate(1200), true);
+});
