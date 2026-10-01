@@ -109,7 +109,7 @@ for (const view of ['flow', 'shoal']) test(`connected Pages ${view} uses the ext
   });
   await page.route('**/api/infer-mood', async (route) => {
     requests.push(route.request());
-    await route.fulfill({ json: { choice: 'playful', confidence: 0.9, source: 'jev', latencyMs: 95 } });
+    await route.fulfill({ json: { choice: view === 'shoal' ? 'tender' : 'playful', confidence: 0.9, source: 'jev', latencyMs: 95 } });
   });
   await page.goto(new URL(`?debug=1&view=${view}`, process.env.AFTERTOUCH_CONNECTED_URL).href);
   await expect(page.locator('#error')).toBeHidden();
@@ -119,8 +119,7 @@ for (const view of ['flow', 'shoal']) test(`connected Pages ${view} uses the ext
   await page.mouse.move(viewport.width * 0.55, viewport.height * 0.55);
   await page.mouse.down();
   await expect(page.locator('#connection')).toContainText('Jev ·');
-  await expect(page.locator('#mode-label')).toHaveText('Playful');
-  if (view === 'shoal') await expect(page.locator('#mode-note')).toContainText('虹色');
+  await expect(page.locator('#mode-label')).toHaveText(view === 'shoal' ? 'Tender' : 'Playful');
   const inference = requests.find((request) => request.method() === 'POST');
   expect(requests[0].url()).toBe(`${apiBase}/api/health`);
   expect(inference.url()).toBe(`${apiBase}/api/infer-mood`);

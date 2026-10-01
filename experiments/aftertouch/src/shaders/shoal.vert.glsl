@@ -30,7 +30,9 @@ vec3 palette(float index, float glow, float variation, float hue) {
 }
 void main() {
   vec3 head = texture(u_state, a_uv).xyz;
-  vec3 velocity = texture(u_velocity, a_uv).xyz;
+  vec4 motion = texture(u_velocity, a_uv);
+  vec3 velocity = motion.xyz;
+  float rainbow = clamp(motion.w, 0.0, 1.0);
   float seed = fract(sin(dot(a_uv, vec2(81.1, 23.7))) * 43758.5);
   float lengthSeed = fract(sin(dot(a_uv, vec2(47.2, 91.7))) * 29173.3);
   float speed = length(velocity);
@@ -49,7 +51,7 @@ void main() {
   vec3 marble = head * 2.1;
   marble += 0.65 * sin(marble.yzx * 1.7 + vec3(u_time * 0.13, -u_time * 0.11, u_time * 0.09));
   float hue = 0.35 * sin(marble.x * 2.0 + marble.z) + 0.32 * cos(marble.y * 2.2 - marble.x) + marble.z * 0.25 + u_time * 0.025;
-  v_color = palette(u_palette_blend, glow, variation, hue);
+  v_color = mix(palette(min(u_palette_blend, 2.0), glow, variation, hue), palette(3.0, glow, variation, hue), rainbow);
   float front = smoothstep(-0.7, 0.7, dot(head, u_to_viewer));
   vec3 normal = normalize(vec3(head.x, 0.18, head.z));
   float lighting = 0.55 + 0.45 * max(dot(normal, normalize(vec3(-0.7, 0.9, 1.0))), 0.0);
@@ -57,5 +59,5 @@ void main() {
   v_color = mix(v_color * vec3(0.65, 0.78, 1.0), v_color, front);
   float boundaryFade = 1.0 - smoothstep(2.15, 2.8, length(head));
   v_alpha = (0.020 + seed * 0.020) * u_density / (1.0 + speed * 1.4) * depthLight * boundaryFade;
-  v_alpha *= mix(1.0, 2.15, smoothstep(2.15, 2.9, u_palette_blend));
+  v_alpha *= mix(1.0, 2.15, rainbow);
 }

@@ -23,7 +23,8 @@ layout(location = 1) out vec4 out_velocity;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main() {
   vec3 p = texture(u_state, v_uv).xyz;
-  vec3 velocity = texture(u_velocity, v_uv).xyz;
+  vec4 motion = texture(u_velocity, v_uv);
+  vec3 velocity = motion.xyz;
   float seed = hash(v_uv);
   float heightSeed = hash(v_uv + 7.31);
   float preferredY = (heightSeed * 2.0 - 1.0) * 0.98;
@@ -34,8 +35,14 @@ void main() {
   float level = clamp((p.y + 1.0) * 0.5, 0.0, 1.0);
   float band = 0.30 + level * 0.37 + seed * 0.12;
   band += 0.045 * sin(angle * 2.0 - p.y * 2.6 + u_time * 0.18);
-  // 70% of the added displacement; follow the shared mood interpolation on return.
-  float playful = 0.7 * clamp(u_palette_blend - 2.0, 0.0, 1.0);
+  float rainbowTarget = clamp(u_palette_blend - 2.0, 0.0, 1.0);
+  // Half the previous added spread; ordinary vortex motion remains unchanged.
+  float playful = 0.35 * rainbowTarget;
+  // Persist color per fiber. Expanded outer fibers settle first, smoothly;
+  // the rest follow over several seconds, without a global brightness cutoff.
+  float outer = smoothstep(0.02, 0.22, radius - band);
+  float colorRate = rainbowTarget > motion.w ? 3.0 : mix(0.38, 0.85, outer);
+  float rainbow = mix(motion.w, rainbowTarget, 1.0 - exp(-u_dt * colorRate));
   // Loosen the envelope into uneven drifting groups, retaining a turning core.
   band += playful * (0.12 + seed * 0.28 + 0.12 * sin(angle * 3.0 + p.y * 2.4 + u_time * 0.35));
   vec3 field = tangent * (0.24 + seed * 0.14 + u_turbulence * 0.035);
@@ -76,5 +83,5 @@ void main() {
     velocity = vec3(0.0);
   }
   out_position = vec4(p, 1.0);
-  out_velocity = vec4(velocity, 1.0);
+  out_velocity = vec4(velocity, rainbow);
 }

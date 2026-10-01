@@ -3,7 +3,7 @@ import { GestureTracker } from './input/gestureTracker.js';
 import { JevClient } from './client/jevClient.js';
 import { ParticleFlow } from './render/particleFlow.js';
 import { ShoalFlow } from './render/shoalFlow.js';
-import { MODES, classifyGesture, smoothValue } from '../shared/mood.js';
+import { MODES, classifyGesture, resolveShoalGesture, smoothValue } from '../shared/mood.js';
 
 const canvas = document.querySelector('#art');
 const spatial = new URLSearchParams(location.search).get('view') === 'shoal';
@@ -50,9 +50,7 @@ function showError(message) {
 }
 
 function showMood(result) {
-  // Immediate curve intent wins over a delayed remote decision in the shoal study.
-  // Keep the source honest: this override is a local gesture decision.
-  if (spatial && tracker.hasPlayfulCurves()) result = { choice: 'playful', confidence: 0.78, source: 'heuristic' };
+  if (spatial) result = resolveShoalGesture(result, tracker, performance.now());
   source = result.source;
   if (result.source === 'jev' || result.source === 'mock') connectionReason = null;
   else if (result.reason && result.reason !== 'cooldown') connectionReason = result.reason;

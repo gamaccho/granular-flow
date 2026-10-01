@@ -1,8 +1,8 @@
 const WINDOW_MS = 600;
-// Restore 40% of the previous relaxation: 2400→1680ms, 0.018→0.0588px/ms.
+// Require sustained, deliberate curves rather than a single bend.
 const CURVE_WINDOW_MS = 1680;
-const CURVE_MIN_SPEED = 0.0588;
-const CURVE_HOLD_MS = 1080;
+const CURVE_MIN_SPEED = 0.075;
+const CURVE_HOLD_MS = 400;
 const STILL_SPEED = 0.04; // CSS pixels per millisecond
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const round = (value) => Math.round(value * 10000) / 10000;
@@ -122,8 +122,8 @@ export class GestureTracker {
     }
     const speed = this.snapshot(t).speed;
     if (speed > 0.95) { this.playfulUntil = -Infinity; return false; }
-    if (points.length >= 5 && t - lastBendTime < 300 && speed >= CURVE_MIN_SPEED
-        && length >= 32 && bends >= 3 && turning >= 1.8 && lastBendTime > this.lastCurveTrigger) {
+    if (points.length >= 9 && t - lastBendTime < 200 && speed >= CURVE_MIN_SPEED
+        && length >= 90 && bends >= 8 && turning >= 4.5 && lastBendTime > this.lastCurveTrigger) {
       // Old curves must not keep renewing Playful during a subsequent straight stroke.
       this.lastCurveTrigger = lastBendTime;
       this.playfulUntil = lastBendTime + CURVE_HOLD_MS;

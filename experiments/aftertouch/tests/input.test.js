@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GestureTracker } from '../src/input/gestureTracker.js';
-import { classifyGesture, smoothValue } from '../shared/mood.js';
+import { classifyGesture, resolveShoalGesture, smoothValue } from '../shared/mood.js';
 
 test('straight motion has time weighted speed, zero jitter, and total path length', () => {
   let now = 0;
@@ -84,12 +84,12 @@ test('slow repeated curves trigger playful independently of sampling rate, then 
   for (const interval of [16, 40, 80]) {
     const tracker = new GestureTracker();
     for (let t = 0; t <= 2400; t += interval) {
-      const angle = t / 2400 * Math.PI * 2;
+      const angle = t / 1800 * Math.PI * 2;
       tracker.record(100 + 26 * Math.cos(angle), 100 + 26 * Math.sin(angle), t);
     }
     assert.ok(tracker.snapshot(2400).speed < 0.12);
     assert.equal(tracker.hasPlayfulCurves(2400), true);
-    assert.equal(tracker.hasPlayfulCurves(3000), true);
+    assert.equal(tracker.hasPlayfulCurves(2600), true);
     assert.equal(tracker.hasPlayfulCurves(4300), false);
     tracker.reset();
     assert.equal(tracker.hasPlayfulCurves(2400), false);
@@ -110,7 +110,7 @@ test('straight strokes, tiny jitter and reversals do not count as playful curves
 
 test('a fast swipe interrupts the slow-curve playful hold', () => {
   const tracker = new GestureTracker();
-  for (let t = 0; t <= 2400; t += 40) tracker.record(26 * Math.cos(t / 2400 * Math.PI * 2), 26 * Math.sin(t / 2400 * Math.PI * 2), t);
+  for (let t = 0; t <= 2400; t += 40) tracker.record(26 * Math.cos(t / 1800 * Math.PI * 2), 26 * Math.sin(t / 1800 * Math.PI * 2), t);
   assert.equal(tracker.hasPlayfulCurves(2400), true);
   tracker.record(900, 0, 2440);
   assert.equal(tracker.hasPlayfulCurves(2440), false);
@@ -121,7 +121,7 @@ test('very slow curves no longer trigger and old curves cannot renew during a st
   const verySlow = new GestureTracker();
   const deliberate = new GestureTracker();
   for (let t = 0; t <= 2400; t += 40) {
-    const angle = t / 2400 * Math.PI * 2;
+    const angle = t / 1800 * Math.PI * 2;
     verySlow.record(18 * Math.cos(angle), 18 * Math.sin(angle), t);
     deliberate.record(26 * Math.cos(angle), 26 * Math.sin(angle), t);
   }
@@ -133,4 +133,25 @@ test('very slow curves no longer trigger and old curves cannot renew during a st
     deliberate.hasPlayfulCurves(t);
   }
   assert.equal(deliberate.hasPlayfulCurves(3800), false);
+});
+
+
+test('shoal gate rejects a short curve from both legacy classification and Jev', () => {
+  const tracker = new GestureTracker();
+  for (let i = 0; i <= 8; i += 1) tracker.record(20 * Math.cos(i * 0.2), 20 * Math.sin(i * 0.2), i * 25);
+  const legacy = classifyGesture(tracker.snapshot(200));
+  assert.equal(legacy.choice, 'playful');
+  assert.equal(resolveShoalGesture(legacy, tracker, 200).choice, 'tender');
+  assert.equal(resolveShoalGesture({ choice: 'playful', confidence: 0.9, source: 'jev' }, tracker, 200).choice, 'tender');
+});
+
+test('shoal gate admits sustained curves but leaves still and sharp gestures available', () => {
+  const tracker = new GestureTracker();
+  for (let t = 0; t <= 2400; t += 40) tracker.record(26 * Math.cos(t / 1800 * Math.PI * 2), 26 * Math.sin(t / 1800 * Math.PI * 2), t);
+  assert.equal(resolveShoalGesture({ choice: 'tender', source: 'jev' }, tracker, 2400).choice, 'playful');
+  tracker.record(900, 0, 2440);
+  assert.equal(resolveShoalGesture({ choice: 'playful', source: 'jev' }, tracker, 2440).choice, 'aggressive');
+  tracker.reset();
+  tracker.record(0, 0, 3000); tracker.record(0, 0, 3600);
+  assert.equal(resolveShoalGesture({ choice: 'playful', source: 'jev' }, tracker, 3600).choice, 'hesitant');
 });

@@ -27,6 +27,17 @@ export function isMood(value) {
     && value.confidence >= 0 && value.confidence <= 1;
 }
 
+export function resolveShoalGesture(result, tracker, now) {
+  const local = classifyGesture(tracker.snapshot(now));
+  const curves = tracker.hasPlayfulCurves(now);
+  if (local.choice === 'aggressive') return local;
+  if (curves) return { choice: 'playful', confidence: 0.78, source: 'heuristic' };
+  // Apply the same curve gate to the short-window classifier and remote Jev.
+  // Otherwise either route can bypass the stricter sustained-curve check.
+  if (result.choice === 'playful') return { ...local, choice: local.choice === 'playful' ? 'tender' : local.choice };
+  return result;
+}
+
 export function smoothValue(current, target, deltaTime) {
   return current + (target - current) * Math.min(1, Math.max(0, deltaTime) * 2.5);
 }

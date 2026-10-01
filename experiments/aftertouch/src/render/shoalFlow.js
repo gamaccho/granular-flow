@@ -63,7 +63,7 @@ export class ShoalFlow extends ParticleFlow {
       const theta = i * 2.39996323;
       const radius = 0.30 + height * 0.37 + thickness * 0.12;
       positions.set([Math.cos(theta) * radius, (height * 2 - 1) * 0.98, Math.sin(theta) * radius, 1], i * 4);
-      velocities.set([-Math.sin(theta) * 0.2, 0, Math.cos(theta) * 0.2, 1], i * 4);
+      velocities.set([-Math.sin(theta) * 0.2, 0, Math.cos(theta) * 0.2, 0], i * 4);
     }
     const textures = [positions, velocities].map((data) => {
       const texture = new THREE.DataTexture(data, this.grid, this.grid, THREE.RGBAFormat, THREE.FloatType);
