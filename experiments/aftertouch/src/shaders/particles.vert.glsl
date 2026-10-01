@@ -30,12 +30,11 @@ void main() {
   vec2 direction = speed > 0.001 ? state.zw / speed : vec2(1.0, 0.0);
   vec2 normal = vec2(-direction.y, direction.x);
   float t = position.x;
-  float fiberLength = 0.012 + min(speed, 20.0) * 0.16;
+  float fiberLength = 0.012 + min(speed, 3.4) * 0.12;
   float width = (1.0 + seed * 0.45 + min(speed, 3.4) * 0.12) * 2.0 / (u_resolution.y * scale);
   float taper = mix(0.3, 1.0, smoothstep(0.0, 0.18, t)) * (1.0 - 0.75 * t * t * t);
   float bow = sin(t * 3.14159265) * min(speed, 3.4) * 0.004 * sin(seed * 6.2831853 + u_time * 0.2);
-  // Root stays in the flow; the continuous ribbon stretches toward the swipe.
-  p += direction * fiberLength * t;
+  p -= direction * fiberLength * (1.0 - t);
   p += normal * (position.y * width * taper + bow);
   gl_Position = vec4(p.x * scale / u_aspect, p.y * scale, 0.0, 1.0);
   v_fiber = vec2(t, position.y * 2.0);

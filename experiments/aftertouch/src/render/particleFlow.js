@@ -39,7 +39,6 @@ export class ParticleFlow {
       u_palette_blend: { value: 2 }, u_pointer: { value: new THREE.Vector2() },
       u_pointer_previous: { value: new THREE.Vector2() },
       u_pointer_velocity: { value: new THREE.Vector2() }, u_active: { value: 0 },
-      u_contact: { value: 0 },
       u_aspect: { value: 1 }, u_pixel_ratio: { value: 1 }, u_density: { value: 65536 / this.count },
       u_resolution: { value: new THREE.Vector2() },
     };
@@ -151,7 +150,6 @@ export class ParticleFlow {
     this.pointerEngaged = pointer.inside;
     u.u_pointer_velocity.value.set(pointer.vx, pointer.vy);
     u.u_active.value = pointer.active;
-    u.u_contact.value = pointer.inside ? 1 : 0;
     const nextState = 1 - this.stateIndex;
     u.u_state.value = this.states[this.stateIndex].texture;
     this.pass(this.simulation, this.states[nextState]);

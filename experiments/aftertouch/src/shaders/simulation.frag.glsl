@@ -5,13 +5,10 @@ uniform float u_dt;
 uniform float u_turbulence;
 uniform float u_decay;
 uniform float u_particle_attraction;
-uniform float u_aspect;
-uniform vec2 u_resolution;
 uniform vec2 u_pointer;
 uniform vec2 u_pointer_previous;
 uniform vec2 u_pointer_velocity;
 uniform float u_active;
-uniform float u_contact;
 in vec2 v_uv;
 out vec4 out_state;
 
@@ -40,47 +37,27 @@ void main() {
   field += vec2(sin(phase * 5.0 + u_time * 0.25), cos(phase * 4.0 - u_time * 0.19)) * 0.018;
   // Affect the whole swept segment, including gaps between sparse touch events.
   vec2 stroke = u_pointer - u_pointer_previous;
-  // Once stretched, the tip remains catchable by the moving fingertip. This
-  // carries the same narrow bundle beyond the original contact patch.
-  vec2 tip = p + velocity * 0.16;
-  float alongStroke = clamp(dot(tip - u_pointer_previous, stroke) / max(dot(stroke, stroke), 0.00001), 0.0, 1.0);
-  vec2 toward = mix(u_pointer_previous, u_pointer, alongStroke) - tip;
+  float alongStroke = clamp(dot(p - u_pointer_previous, stroke) / max(dot(stroke, stroke), 0.00001), 0.0, 1.0);
+  vec2 toward = mix(u_pointer_previous, u_pointer, alongStroke) - p;
   float distanceToTouch = length(toward);
   vec2 direction = toward / max(distanceToTouch, 0.02);
   float swipeSpeed = length(u_pointer_velocity);
   float brushing = smoothstep(0.15, 1.1, swipeSpeed);
-  // A compact fingertip footprint in CSS pixels, independent of viewport shape.
-  float scale = u_aspect < 1.0 ? u_aspect * 1.55 : 1.22;
-  float brushRadius = mix(18.0, 26.0, smoothstep(0.2, 6.0, swipeSpeed)) * 2.0 / (u_resolution.y * scale);
-  float influence = (1.0 - smoothstep(0.25, 1.0, distanceToTouch / brushRadius)) * u_active;
+  float brushRadius = mix(0.28, 0.50, smoothstep(0.2, 6.0, swipeSpeed));
+  float influence = exp(-distanceToTouch * distanceToTouch / (brushRadius * brushRadius)) * u_active;
   float burst = smoothstep(1.6, 2.8, u_particle_attraction);
   float orbit = 1.0 - smoothstep(0.08, 0.4, abs(u_particle_attraction - 0.5));
   vec2 touchForce = direction * u_particle_attraction * (1.0 - burst) * 0.6;
   touchForce -= direction * burst * 2.3;
   touchForce += vec2(-direction.y, direction.x) * orbit * 0.65;
-  vec2 rootDrift = field + touchForce * influence * (1.0 - brushing) * 0.12;
   field += touchForce * influence * (1.0 - brushing * 0.9);
-  // Store a root-to-finger stretch, rather than a speed-limited hair length.
-  // The cap exceeds a full viewport drag, so the strand does not stop halfway.
-  vec2 combVelocity = (u_pointer - p) / 0.16;
-  combVelocity *= min(1.0, 20.0 / max(length(combVelocity), 0.001));
-  // A decaying pointer after release is not a new brush stroke. Preserve the
-  // stretched fiber until actual movement returns, rather than overwriting it
-  // with the slowing pointer at the end of a gesture.
-  float movingContact = u_contact * step(0.0000001, dot(stroke, stroke));
-  float combing = min(influence * brushing * movingContact, 0.98);
-  // Keep the combed direction as elastic memory instead of throwing the root.
-  // Strongly stretched fibers relax over seconds, while untouched fibers retain
-  // the original flow. Contact can still redirect a remembered fiber immediately.
-  float stretched = smoothstep(0.30, 0.75, length(velocity));
-  float relaxation = mix(4.0, 0.22, stretched);
-  velocity = mix(velocity, field, min(1.0, u_dt * relaxation));
-  velocity = mix(velocity, combVelocity, combing);
-  float remembered = smoothstep(0.30, 0.75, length(velocity));
-  velocity *= pow(mix(u_decay, 0.996, remembered), u_dt * 20.0);
-  // A pulled root resists the background current until the strand relaxes.
-  // Otherwise the flowing ring carries the long bundle away from the touch.
-  p += rootDrift * u_dt * mix(1.0, 0.08, remembered);
+  vec2 combDirection = u_pointer_velocity / max(swipeSpeed, 0.001);
+  vec2 combVelocity = combDirection * min(swipeSpeed * 0.9, 3.4) + field * 0.06;
+  float combing = min(influence * brushing, 0.98);
+  field = mix(field, combVelocity, combing);
+  velocity = mix(velocity, field, min(1.0, u_dt * (4.0 + combing * 22.0)));
+  velocity *= pow(u_decay, u_dt * 20.0);
+  p += velocity * u_dt;
   if (length(p) > 1.65) {
     float angle = seed * 6.2831853 + u_time * 0.1;
     p = vec2(cos(angle), sin(angle) / 1.17) * band;
