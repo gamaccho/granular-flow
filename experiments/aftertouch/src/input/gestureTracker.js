@@ -3,6 +3,10 @@ const WINDOW_MS = 600;
 const CURVE_WINDOW_MS = 1680;
 const CURVE_MIN_SPEED = 0.075;
 const CURVE_HOLD_MS = 400;
+// The previous 4.5-radian gate represented two substantial bends. Count three
+// 2.25-radian arcs now; do not combine unfinished arcs across direction changes.
+const CURVE_TURN_RADIANS = 2.25;
+const REQUIRED_CURVES = 3;
 const STILL_SPEED = 0.04; // CSS pixels per millisecond
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const round = (value) => Math.round(value * 10000) / 10000;
@@ -104,7 +108,9 @@ export class GestureTracker {
   hasPlayfulCurves(t = this.now()) {
     const points = this.curveHistory.filter((point) => point.t >= t - CURVE_WINDOW_MS);
     let length = 0;
-    let turning = 0;
+    let curves = 0;
+    let curveTurn = 0;
+    let curveDirection = 0;
     let bends = 0;
     let angle = null;
     let lastBendTime = -Infinity;
@@ -114,16 +120,28 @@ export class GestureTracker {
       length += Math.hypot(dx, dy);
       const nextAngle = Math.atan2(dy, dx);
       if (angle !== null) {
-        const turn = Math.abs(Math.atan2(Math.sin(nextAngle - angle), Math.cos(nextAngle - angle)));
+        const signedTurn = Math.atan2(Math.sin(nextAngle - angle), Math.cos(nextAngle - angle));
+        const turn = Math.abs(signedTurn);
         // Exclude back-and-forth reversals and tiny tracking noise.
-        if (turn > 0.06 && turn < 1.8) { turning += turn; bends += 1; lastBendTime = points[i].t; }
+        if (turn > 0.06 && turn < 1.8) {
+          const direction = Math.sign(signedTurn);
+          if (direction !== curveDirection) curveTurn = 0;
+          curveDirection = direction;
+          curveTurn += turn;
+          if (curveTurn >= CURVE_TURN_RADIANS) { curves += 1; curveTurn -= CURVE_TURN_RADIANS; }
+          bends += 1;
+          lastBendTime = points[i].t;
+        } else if (turn >= 1.8) {
+          curveTurn = 0;
+          curveDirection = 0;
+        }
       }
       angle = nextAngle;
     }
     const speed = this.snapshot(t).speed;
     if (speed > 0.95) { this.playfulUntil = -Infinity; return false; }
     if (points.length >= 9 && t - lastBendTime < 200 && speed >= CURVE_MIN_SPEED
-        && length >= 90 && bends >= 8 && turning >= 4.5 && lastBendTime > this.lastCurveTrigger) {
+        && length >= 90 && bends >= 8 && curves >= REQUIRED_CURVES && lastBendTime > this.lastCurveTrigger) {
       // Old curves must not keep renewing Playful during a subsequent straight stroke.
       this.lastCurveTrigger = lastBendTime;
       this.playfulUntil = lastBendTime + CURVE_HOLD_MS;
