@@ -44,6 +44,7 @@ test('fiber ribbons respond locally and retain stretch in both swipe directions'
   const strongest = right.motion.reduce((best, sample, index, samples) => sample.vx > samples[best].vx ? index : best, 0);
   console.log(`GPU stretch after release: ${retained[strongest].vx} / ${right.peak}`);
   expect(retained[strongest].vx).toBeGreaterThan(right.peak * 0.4);
+  expect(Math.hypot(retained[strongest].x - right.motion[strongest].x, retained[strongest].y - right.motion[strongest].y)).toBeLessThan(0.1);
   expect(Math.hypot(retained[strongest].x, retained[strongest].y * 1.17)).toBeLessThan(0.9);
   await page.locator('#pause').click();
   await expect(page.locator('#pause')).toHaveAttribute('aria-label', '再生');

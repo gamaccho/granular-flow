@@ -78,7 +78,9 @@ void main() {
   velocity = mix(velocity, combVelocity, combing);
   float remembered = smoothstep(0.30, 0.75, length(velocity));
   velocity *= pow(mix(u_decay, 0.996, remembered), u_dt * 20.0);
-  p += rootDrift * u_dt;
+  // A pulled root resists the background current until the strand relaxes.
+  // Otherwise the flowing ring carries the long bundle away from the touch.
+  p += rootDrift * u_dt * mix(1.0, 0.08, remembered);
   if (length(p) > 1.65) {
     float angle = seed * 6.2831853 + u_time * 0.1;
     p = vec2(cos(angle), sin(angle) / 1.17) * band;
