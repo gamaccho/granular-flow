@@ -35,7 +35,9 @@ test('fiber ribbons respond locally and retain stretch in both swipe directions'
     expect(motion.every((sample) => Math.hypot(sample.x, sample.y * 1.17) < 0.9)).toBe(true);
     return { peak, motion, direction };
   };
-  const right = await swipe(0.12, 0.88);
+  // On the narrow viewport, the annulus lies near the screen edges. Cross its
+  // visible fibers rather than keeping both endpoints inside the central hole.
+  const right = await swipe(0.02, 0.98);
   expect(right.peak).toBeGreaterThan(0.8);
   await page.mouse.up();
   const releasedAt = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime);
@@ -51,7 +53,7 @@ test('fiber ribbons respond locally and retain stretch in both swipe directions'
   await page.screenshot({ path: testInfo.outputPath('fibers-swipe-right.png') });
   await page.locator('#reset').click();
   await page.locator('#pause').click();
-  expect((await swipe(0.88, 0.12)).peak).toBeGreaterThan(0.8);
+  expect((await swipe(0.98, 0.02)).peak).toBeGreaterThan(0.8);
   await page.mouse.up();
   await expect(page.locator('#error')).toBeHidden();
   expect(errors).toEqual([]);
