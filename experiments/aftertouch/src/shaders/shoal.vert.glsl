@@ -18,7 +18,9 @@ vec3 palette(float index, float glow, float variation, float hue) {
   vec3 red = mix(vec3(0.49, 0.025, 0.05), vec3(1.0, 0.35, 0.07), glow);
   vec3 amber = mix(vec3(0.38, 0.16, 0.045), vec3(1.0, 0.74, 0.38), glow);
   vec3 spectrum = clamp(abs(fract(hue + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
-  vec3 rainbow = mix(vec3(1.0), spectrum, 0.85) * mix(0.48, 1.0, glow);
+  vec3 rainbow = mix(vec3(1.0), spectrum, 0.78) * mix(0.8, 1.2, glow);
+  // Lift blue/violet as well as yellow/green without washing out the hues.
+  rainbow *= clamp(0.58 / max(dot(rainbow, vec3(0.2126, 0.7152, 0.0722)), 0.1), 1.0, 1.85);
   blue = mix(blue, mix(vec3(0.025, 0.28, 0.26), vec3(0.30, 0.90, 0.78), glow), variation * 0.45);
   red = mix(red, mix(vec3(0.52, 0.10, 0.035), vec3(1.0, 0.61, 0.32), glow), variation * 0.40);
   amber = mix(amber, mix(vec3(0.38, 0.25, 0.11), vec3(1.0, 0.91, 0.65), glow), variation * 0.45);
@@ -44,7 +46,9 @@ void main() {
   v_fiber = vec2(t, position.y * 2.0);
   float glow = clamp(seed * 0.65 + speed * 0.35, 0.0, 1.0);
   float variation = 0.5 + 0.5 * sin(u_time * 0.16 + head.x * 1.5 + head.y * 0.7);
-  float hue = atan(head.z, head.x) / 6.2831853 + head.y * 0.38 + u_time * 0.025;
+  vec3 marble = head * 2.1;
+  marble += 0.65 * sin(marble.yzx * 1.7 + vec3(u_time * 0.13, -u_time * 0.11, u_time * 0.09));
+  float hue = 0.35 * sin(marble.x * 2.0 + marble.z) + 0.32 * cos(marble.y * 2.2 - marble.x) + marble.z * 0.25 + u_time * 0.025;
   v_color = palette(u_palette_blend, glow, variation, hue);
   float front = smoothstep(-0.7, 0.7, dot(head, u_to_viewer));
   vec3 normal = normalize(vec3(head.x, 0.18, head.z));
@@ -53,4 +57,5 @@ void main() {
   v_color = mix(v_color * vec3(0.65, 0.78, 1.0), v_color, front);
   float boundaryFade = 1.0 - smoothstep(2.15, 2.8, length(head));
   v_alpha = (0.020 + seed * 0.020) * u_density / (1.0 + speed * 1.4) * depthLight * boundaryFade;
+  v_alpha *= mix(1.0, 2.15, smoothstep(2.15, 2.9, u_palette_blend));
 }

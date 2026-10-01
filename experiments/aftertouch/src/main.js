@@ -50,6 +50,9 @@ function showError(message) {
 }
 
 function showMood(result) {
+  // Immediate curve intent wins over a delayed remote decision in the shoal study.
+  // Keep the source honest: this override is a local gesture decision.
+  if (spatial && tracker.hasPlayfulCurves()) result = { choice: 'playful', confidence: 0.78, source: 'heuristic' };
   source = result.source;
   if (result.source === 'jev' || result.source === 'mock') connectionReason = null;
   else if (result.reason && result.reason !== 'cooldown') connectionReason = result.reason;
@@ -194,7 +197,7 @@ function frame(now) {
     if (now - lastSample >= 30) { tracker.record(pointer.clientX, pointer.clientY, now); lastSample = now; }
     const metrics = tracker.snapshot(now);
     if (now - lastLocal >= 80) {
-      if (now - remoteAt > 1900) showMood(classifyGesture(metrics));
+      if ((spatial && tracker.hasPlayfulCurves(now)) || now - remoteAt > 1900) showMood(classifyGesture(metrics));
       lastLocal = now;
     }
     if (tracker.shouldEvaluate(now)) {

@@ -96,7 +96,7 @@ test('fiber ribbons gain strong GPU motion in both swipe directions', async ({ p
   expect(errors).toEqual([]);
 });
 
-test('connected Pages uses the external proxy and displays a returned Jev decision', async ({ page }, testInfo) => {
+for (const view of ['flow', 'shoal']) test(`connected Pages ${view} uses the external proxy and displays a returned Jev decision`, async ({ page }, testInfo) => {
   test.skip(!process.env.AFTERTOUCH_CONNECTED_URL, 'Requires the connected Pages build.');
   const apiBase = process.env.AFTERTOUCH_EXPECTED_API_BASE;
   const requests = [];
@@ -111,15 +111,16 @@ test('connected Pages uses the external proxy and displays a returned Jev decisi
     requests.push(route.request());
     await route.fulfill({ json: { choice: 'playful', confidence: 0.9, source: 'jev', latencyMs: 95 } });
   });
-  await page.goto(new URL('?debug=1', process.env.AFTERTOUCH_CONNECTED_URL).href);
+  await page.goto(new URL(`?debug=1&view=${view}`, process.env.AFTERTOUCH_CONNECTED_URL).href);
   await expect(page.locator('#error')).toBeHidden();
-  await expect(page.locator('.edition span')).toHaveText('01 / JEV');
+  await expect(page.locator('.edition span')).toHaveText(view === 'shoal' ? '02 / SHOAL' : '01 / JEV');
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(5);
   const viewport = page.viewportSize();
   await page.mouse.move(viewport.width * 0.55, viewport.height * 0.55);
   await page.mouse.down();
   await expect(page.locator('#connection')).toContainText('Jev ·');
   await expect(page.locator('#mode-label')).toHaveText('Playful');
+  if (view === 'shoal') await expect(page.locator('#mode-note')).toContainText('虹色');
   const inference = requests.find((request) => request.method() === 'POST');
   expect(requests[0].url()).toBe(`${apiBase}/api/health`);
   expect(inference.url()).toBe(`${apiBase}/api/infer-mood`);

@@ -12,6 +12,7 @@ uniform float u_dt;
 uniform float u_turbulence;
 uniform float u_decay;
 uniform float u_particle_attraction;
+uniform float u_palette_blend;
 uniform vec2 u_pointer;
 uniform vec2 u_pointer_previous;
 uniform vec2 u_pointer_velocity;
@@ -33,10 +34,14 @@ void main() {
   float level = clamp((p.y + 1.0) * 0.5, 0.0, 1.0);
   float band = 0.30 + level * 0.37 + seed * 0.12;
   band += 0.045 * sin(angle * 2.0 - p.y * 2.6 + u_time * 0.18);
+  float playful = smoothstep(2.15, 2.9, u_palette_blend);
+  // Loosen the envelope into uneven drifting groups, retaining a turning core.
+  band += playful * (0.12 + seed * 0.28 + 0.12 * sin(angle * 3.0 + p.y * 2.4 + u_time * 0.35));
   vec3 field = tangent * (0.24 + seed * 0.14 + u_turbulence * 0.035);
-  field += radial * (band - radius) * 0.85;
-  field.y = (preferredY - p.y) * 0.42 + 0.13 * sin(angle - p.y * 2.0 + seed * 6.2831853);
+  field += radial * (band - radius) * mix(0.85, 0.58, playful);
+  field.y = (preferredY * (1.0 + playful * 0.22) - p.y) * 0.42 + (0.13 + playful * 0.18) * sin(angle - p.y * 2.0 + seed * 6.2831853);
   field += vec3(sin(p.z * 4.0 + u_time * 0.27), sin(p.x * 3.0 - u_time * 0.2), cos(p.y * 4.0 + u_time * 0.23)) * (0.012 + u_turbulence * 0.013);
+  field += playful * 0.09 * vec3(sin(p.y * 3.2 + p.z * 2.0 + u_time * 0.4), cos(p.z * 3.0 + p.x * 2.5), sin(p.x * 3.4 - p.y * 2.0 - u_time * 0.3));
   vec4 clip = u_view_projection * vec4(p, 1.0);
   vec2 screen = clip.xy / max(clip.w, 0.01);
   screen.x *= u_aspect;

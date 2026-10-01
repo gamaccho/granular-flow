@@ -79,3 +79,39 @@ test('sparse sampling can trigger inference without bypassing debounce or accept
   tracker.record(240, 0, 1200);
   assert.equal(tracker.shouldEvaluate(1200), true);
 });
+
+test('slow repeated curves trigger playful independently of sampling rate, then expire', () => {
+  for (const interval of [16, 40, 80]) {
+    const tracker = new GestureTracker();
+    for (let t = 0; t <= 2400; t += interval) {
+      const angle = t / 2400 * Math.PI * 2;
+      tracker.record(100 + 18 * Math.cos(angle), 100 + 18 * Math.sin(angle), t);
+    }
+    assert.ok(tracker.snapshot(2400).speed < 0.12);
+    assert.equal(tracker.hasPlayfulCurves(2400), true);
+    assert.equal(tracker.hasPlayfulCurves(3000), true);
+    assert.equal(tracker.hasPlayfulCurves(4300), false);
+    tracker.reset();
+    assert.equal(tracker.hasPlayfulCurves(2400), false);
+  }
+});
+
+test('straight strokes, tiny jitter and reversals do not count as playful curves', () => {
+  for (const position of [
+    (i) => [i * 2, 0],
+    (i) => [Math.sin(i) * 0.8, Math.cos(i) * 0.8],
+    (i) => [i % 2 ? 10 : 0, 0],
+  ]) {
+    const tracker = new GestureTracker();
+    for (let i = 0; i <= 60; i += 1) tracker.record(...position(i), i * 40);
+    assert.equal(tracker.hasPlayfulCurves(2400), false);
+  }
+});
+
+test('a fast swipe interrupts the slow-curve playful hold', () => {
+  const tracker = new GestureTracker();
+  for (let t = 0; t <= 2400; t += 40) tracker.record(18 * Math.cos(t / 2400 * Math.PI * 2), 18 * Math.sin(t / 2400 * Math.PI * 2), t);
+  assert.equal(tracker.hasPlayfulCurves(2400), true);
+  tracker.record(900, 0, 2440);
+  assert.equal(tracker.hasPlayfulCurves(2440), false);
+});
