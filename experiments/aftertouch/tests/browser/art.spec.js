@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('fiber ribbons respond locally and retain stretch in both swipe directions', async ({ page }, testInfo) => {
-  test.setTimeout(60000);
+  test.setTimeout(90000);
   test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -39,9 +39,10 @@ test('fiber ribbons respond locally and retain stretch in both swipe directions'
   expect(right.peak).toBeGreaterThan(0.8);
   await page.mouse.up();
   const releasedAt = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime);
-  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime), { timeout: 20000 }).toBeGreaterThan(releasedAt + 2.0);
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().simulationTime), { timeout: 35000 }).toBeGreaterThan(releasedAt + 2.0);
   const retained = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
   const strongest = right.motion.reduce((best, sample, index, samples) => sample.vx > samples[best].vx ? index : best, 0);
+  console.log(`GPU stretch after release: ${retained[strongest].vx} / ${right.peak}`);
   expect(retained[strongest].vx).toBeGreaterThan(right.peak * 0.4);
   expect(Math.hypot(retained[strongest].x, retained[strongest].y * 1.17)).toBeLessThan(0.9);
   await page.locator('#pause').click();

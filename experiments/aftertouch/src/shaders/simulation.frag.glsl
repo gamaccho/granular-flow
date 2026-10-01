@@ -11,6 +11,7 @@ uniform vec2 u_pointer;
 uniform vec2 u_pointer_previous;
 uniform vec2 u_pointer_velocity;
 uniform float u_active;
+uniform float u_contact;
 in vec2 v_uv;
 out vec4 out_state;
 
@@ -58,7 +59,11 @@ void main() {
   field += touchForce * influence * (1.0 - brushing * 0.9);
   vec2 combDirection = u_pointer_velocity / max(swipeSpeed, 0.001);
   vec2 combVelocity = combDirection * min(swipeSpeed * 0.9, 3.4) + field * 0.06;
-  float combing = min(influence * brushing, 0.98);
+  // A decaying pointer after release is not a new brush stroke. Preserve the
+  // stretched fiber until actual movement returns, rather than overwriting it
+  // with the slowing pointer at the end of a gesture.
+  float movingContact = u_contact * step(0.0000001, dot(stroke, stroke));
+  float combing = min(influence * brushing * movingContact, 0.98);
   field = mix(field, combVelocity, combing);
   // Keep the combed direction as elastic memory instead of throwing the root.
   // Strongly stretched fibers relax over seconds, while untouched fibers retain
