@@ -24,9 +24,18 @@ void main(){
   vec2 p=(gl_FragCoord.xy-.5*resolution)/min(resolution.x,resolution.y);
   float f=0.;vec2 gradient=vec2(0.);float shadow=0.;
   for(int i=0;i<24;i++){
-    vec4 d=drops[i];vec2 v=p-d.xy;float sy=v.y>0.?max(d.w,1.):1.;float taper=1.+max(v.y,0.)/max(d.z,.001)*.65*min(1.,sy-1.);v.x*=taper;v.y/=sy;float r=d.z;
-    float q=dot(v,v)/max(r*r,.000001);float e=exp(-q*2.8)*2.2*step(.001,r);
-    f+=e;gradient+=e*(-5.6)*vec2(v.x*taper,v.y/sy)/max(r*r,.000001);
+    vec4 d=drops[i];vec2 offset=p-d.xy;float r=d.z;
+    // A rounded advancing head and a narrowing receding tail, not a stretched sphere.
+    float elong=max(d.w-1.,0.);
+    float sy=offset.y>0.?max(d.w,1.):1.+elong*.18;
+    float narrow=sqrt(1.+elong*.45);
+    float neck=.85*min(1.,elong);
+    float taper=narrow*(1.+max(offset.y,0.)/max(r*sy,.001)*neck);
+    vec2 v=vec2(offset.x*taper,offset.y/sy);
+    float rr=max(r*r,.000001);
+    float q=dot(v,v)/rr;float e=exp(-q*2.8)*2.2*step(.001,r);
+    float taperY=offset.y>0.?narrow*neck/max(r*sy,.001):0.;
+    f+=e;gradient+=e*(-5.6)*vec2(v.x*taper,v.y/sy+v.x*offset.x*taperY)/rr;
     vec2 sv=v+vec2(-.013,.024);shadow+=exp(-dot(sv,sv)/max(r*r,.000001)*2.4)*.18*step(.001,r);
   }
   vec3 bg=paper(p);vec3 col=bg*(1.-min(shadow,.25));
@@ -65,7 +74,7 @@ void main(){
   function resize(){width=innerWidth;height=innerHeight;unit=Math.min(width,height);const scale=Math.min(devicePixelRatio||1,1.65,Math.sqrt(1800000/(width*height)));canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);gl.viewport(0,0,canvas.width,canvas.height);spray.width=canvas.width;spray.height=canvas.height;rain.bounds(width/unit,height/unit);}
   function reset(){held=null;rain.reset();drops=rain.drops;}
   function point(e){return {x:(e.clientX-width/2)/unit,y:(height/2-e.clientY)/unit};}
-  canvas.addEventListener('pointerdown',e=>{if(pointerId!==null)return;pointerId=e.pointerId;canvas.setPointerCapture(e.pointerId);target=point(e);held=drops.reduce((best,d)=>Math.hypot(d.x-target.x,d.y-target.y)<d.r*.95&&(!best||Math.hypot(d.x-target.x,d.y-target.y)<Math.hypot(best.x-target.x,best.y-target.y))?d:best,null);if(!held&&drops.length<24){held=rain.add(target.x,target.y,.045+Math.random()*.025);}});
+  canvas.addEventListener('pointerdown',e=>{if(pointerId!==null)return;pointerId=e.pointerId;canvas.setPointerCapture(e.pointerId);target=point(e);held=drops.reduce((best,d)=>Math.hypot(d.x-target.x,d.y-target.y)<d.r*.95&&(!best||Math.hypot(d.x-target.x,d.y-target.y)<Math.hypot(best.x-target.x,best.y-target.y))?d:best,null);if(!held&&drops.length<24){held=rain.add(target.x,target.y,rain.rainRadius);}});
   canvas.addEventListener('pointermove',e=>{if(e.pointerId===pointerId)target=point(e);});
   function release(e){if(e.pointerId===pointerId){held=null;pointerId=null;}}
   canvas.addEventListener('pointerup',release);canvas.addEventListener('pointercancel',release);canvas.addEventListener('lostpointercapture',release);
