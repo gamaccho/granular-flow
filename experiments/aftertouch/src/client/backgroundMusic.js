@@ -8,7 +8,7 @@ export class BackgroundMusic {
     this.source = null;
     this.primer = null;
     this.buffer = null;
-    this.muted = false;
+    this.requested = false;
     this.disposed = false;
     this.status = 'loading';
     this.abort = new AbortController();
@@ -23,19 +23,18 @@ export class BackgroundMusic {
       this.gain.gain.value = 0.8;
       this.gain.connect(this.context.destination);
       this.context.onstatechange = () => this.notify();
-      // Do not await resume: a blocked autoplay promise may stay pending until
-      // the first gesture, while fetch/decode and the artwork must keep moving.
-      this.resume();
       const response = await fetch(this.url, { signal: this.abort.signal });
       if (!response.ok) throw new Error(`BGM HTTP ${response.status}`);
       const data = await response.arrayBuffer();
       if (this.disposed) return;
       this.buffer = await this.context.decodeAudioData(data);
       if (this.disposed) return;
-      this.startSource();
-      this.stopPrimer();
       this.status = 'ready';
-      this.resume();
+      if (this.requested) {
+        this.startSource();
+        this.stopPrimer();
+        this.resume();
+      }
       this.notify();
     } catch (error) {
       if (this.disposed) return;
@@ -62,11 +61,18 @@ export class BackgroundMusic {
     this.primer = null;
   }
 
+  start() {
+    if (this.disposed || this.status === 'error') return;
+    this.requested = true;
+    this.resume(true);
+    this.notify();
+  }
+
   resume(fromGesture = false) {
-    if (!this.context || this.disposed || this.muted || this.status === 'error') return;
+    if (!this.context || this.disposed || !this.requested || this.status === 'error') return;
     // Call start and resume synchronously inside the gesture, without waiting
     // for decode or a promise. Some mobile WebKit sessions require both.
-    if (fromGesture && this.context.state !== 'running') {
+    if (fromGesture && (!this.source || this.context.state !== 'running')) {
       if (this.buffer) this.startSource();
       else if (!this.primer) {
         this.primer = this.context.createBufferSource();
@@ -80,17 +86,10 @@ export class BackgroundMusic {
     void this.context.resume().then(() => this.notify()).catch(() => this.notify());
   }
 
-  toggle() {
-    this.muted = !this.muted;
-    if (this.gain) this.gain.gain.setTargetAtTime(this.muted ? 0 : 0.8, this.context.currentTime, 0.08);
-    if (!this.muted) this.resume(true);
-    this.notify();
-  }
-
   snapshot() {
     return {
-      status: this.status, state: this.context?.state ?? 'unavailable', muted: this.muted,
-      playing: this.status === 'ready' && this.context?.state === 'running' && !this.muted,
+      status: this.status, state: this.context?.state ?? 'unavailable', requested: this.requested,
+      playing: this.status === 'ready' && this.context?.state === 'running' && !!this.source,
       loop: this.source?.loop ?? false, duration: this.buffer?.duration ?? 0,
     };
   }

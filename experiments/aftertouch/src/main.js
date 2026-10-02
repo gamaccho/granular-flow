@@ -9,35 +9,19 @@ import { MODES, classifyGesture, resolveShoalGesture, smoothValue } from '../sha
 const canvas = document.querySelector('#art');
 const spatial = new URLSearchParams(location.search).get('view') === 'shoal';
 const Flow = spatial ? ShoalFlow : ParticleFlow;
-const musicButton = document.querySelector('#music');
+const musicButton = document.querySelector('#sound-on');
 const music = spatial ? new BackgroundMusic(`${import.meta.env.BASE_URL}audio/deep-sea-loop.mp3`, {
-  onChange: ({ status, playing, muted }) => {
-    musicButton.dataset.playing = String(playing);
-    musicButton.setAttribute('aria-label', playing ? 'BGMをミュート' : 'BGMを再生');
-    musicButton.setAttribute('aria-pressed', String(muted));
-    musicButton.title = status === 'error' ? 'BGMを読み込めませんでした' : status === 'loading' ? 'BGM読み込み中' : playing ? 'BGMをミュート' : 'BGMを再生';
+  onChange: ({ status, playing, requested }) => {
+    musicButton.hidden = playing;
     musicButton.disabled = status === 'error';
-    document.querySelector('#music-icon').setAttribute('d', playing ? 'M8 5v14M16 5v14' : 'M9 18V5l10-2v13M9 8l10-2M9 18c0 2-5 3-5 0s5-2 5 0M19 16c0 2-5 3-5 0s5-2 5 0');
+    musicButton.setAttribute('aria-busy', String(requested && status === 'loading'));
+    musicButton.querySelector('span').textContent = status === 'error' ? 'SOUND UNAVAILABLE' : requested && status === 'loading' ? 'LOADING…' : 'SOUND ON';
+    musicButton.title = status === 'error' ? 'BGMを読み込めませんでした' : '音楽をオンにする';
   },
 }) : null;
 musicButton.hidden = !music;
-musicButton.addEventListener('click', () => {
-  if (!music) return;
-  if (!music.snapshot().playing && !music.muted) music.resume(true);
-  else music.toggle();
-});
-// Capture touch before decoding completes, so iPhone can unlock the context
-// even when the first gesture happens during the download.
-const unlockMusic = (event) => {
-  if (!event.isTrusted || event.target.closest?.('#music')) return;
-  music?.resume(true);
-};
-document.addEventListener('pointerdown', unlockMusic, { capture: true, passive: true });
-document.addEventListener('pointerup', unlockMusic, { capture: true, passive: true });
-document.addEventListener('touchstart', unlockMusic, { capture: true, passive: true });
-document.addEventListener('click', unlockMusic, { capture: true, passive: true });
-document.addEventListener('touchend', unlockMusic, { capture: true, passive: true });
-document.addEventListener('keydown', unlockMusic, { capture: true });
+musicButton.addEventListener('click', () => music?.start());
+// Download independently of the artwork, but only the sound button starts audio.
 if (music) void music.load();
 
 const errorPanel = document.querySelector('#error');

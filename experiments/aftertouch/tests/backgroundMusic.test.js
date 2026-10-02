@@ -21,22 +21,23 @@ function setup(t, response) {
   const old = Object.getOwnPropertyDescriptor(globalThis, 'window');
   Object.defineProperty(globalThis, 'window', { configurable: true, value: { AudioContext: Audio } });
   t.after(() => { if (old) Object.defineProperty(globalThis, 'window', old); else delete globalThis.window; });
-  return { unlock(music) { gesture = true; music.resume(true); gesture = false; }, starts: () => starts };
+  return { unlock(music) { gesture = true; music.start(); gesture = false; }, starts: () => starts };
 }
 
-test('first finger gesture synchronously starts the decoded BGM and resumes audio', async (t) => {
+test('sound-on starts decoded BGM synchronously without autoplay', async (t) => {
   const mock = setup(t, { ok: true, arrayBuffer: async () => new ArrayBuffer(1) });
   const music = new BackgroundMusic('/bgm.mp3');
   await music.load();
   assert.equal(music.snapshot().playing, false);
+  assert.equal(mock.starts(), 0);
   mock.unlock(music);
   assert.equal(music.snapshot().playing, true);
   assert.equal(music.snapshot().loop, true);
-  assert.equal(mock.starts(), 2); // Initial autoplay attempt and first-gesture start.
+  assert.equal(mock.starts(), 1); // No autoplay or canvas-gesture start.
   music.dispose();
 });
 
-test('first gesture during download primes audio and decoded BGM starts without another touch', async (t) => {
+test('sound-on during download primes audio and starts BGM when ready', async (t) => {
   let downloaded;
   const data = new Promise((resolve) => { downloaded = resolve; });
   const mock = setup(t, { ok: true, arrayBuffer: () => data });

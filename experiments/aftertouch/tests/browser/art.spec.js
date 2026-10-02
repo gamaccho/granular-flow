@@ -277,7 +277,7 @@ test('real Vite proxy and artwork run together without an API key', async ({ pag
 });
 
 
-test('spatial shoal BGM loads independently, decodes and starts a native gapless loop', async ({ page }, testInfo) => {
+test('spatial shoal sound-on button starts BGM once and disappears in clean view', async ({ page }, testInfo) => {
   test.setTimeout(90000);
   test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
   let releaseDownload;
@@ -286,7 +286,8 @@ test('spatial shoal BGM loads independently, decodes and starts a native gapless
     await downloadGate;
     await route.continue();
   });
-  await page.goto(new URL('?view=shoal&debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
+  await page.goto(new URL('?view=shoal&clean=1&debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
+  await expect(page.locator('#sound-on')).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(4);
   expect(await page.evaluate(() => window.__AFTERTOUCH__.audio().status)).toBe('loading');
   const frames = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
@@ -294,6 +295,9 @@ test('spatial shoal BGM loads independently, decodes and starts a native gapless
   // Unlock while downloading, as a phone user can do before decoding is ready.
   if (testInfo.project.name === 'mobile') await page.touchscreen.tap(100, 200);
   else await page.locator('#art').click({ position: { x: 100, y: 200 } });
+  expect(await page.evaluate(() => window.__AFTERTOUCH__.audio().requested)).toBe(false);
+  await page.locator('#sound-on').click();
+  expect(await page.evaluate(() => window.__AFTERTOUCH__.audio().requested)).toBe(true);
   releaseDownload();
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().status), { timeout: 30000 }).toBe('ready');
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().playing)).toBe(true);
@@ -301,10 +305,8 @@ test('spatial shoal BGM loads independently, decodes and starts a native gapless
   expect(audio.loop).toBe(true);
   expect(audio.duration).toBeGreaterThan(206);
   expect(audio.duration).toBeLessThan(208);
-  await page.locator('#music').click();
-  expect(await page.evaluate(() => window.__AFTERTOUCH__.audio().muted)).toBe(true);
-  await page.locator('#music').click();
-  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().playing)).toBe(true);
+  await expect(page.locator('#sound-on')).toBeHidden();
+  expect(await page.locator('#music').count()).toBe(0);
   await expect(page.locator('#error')).toBeHidden();
 });
 

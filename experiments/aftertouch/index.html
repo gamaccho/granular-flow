@@ -38,13 +38,16 @@
           <div class="connection" id="connection" role="status" aria-live="polite">接続を確認しています</div>
         </div>
         <div class="controls pointer-events-auto flex items-center gap-2">
-          <button id="music" type="button" aria-label="BGMをミュート" aria-pressed="false" title="BGM読み込み中" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path id="music-icon" d="M9 18V5l10-2v13M9 8l10-2M9 18c0 2-5 3-5 0s5-2 5 0M19 16c0 2-5 3-5 0s5-2 5 0" /></svg></button>
           <button id="pause" type="button" aria-label="一時停止" title="一時停止（Space）"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="pause-icon" d="M8 5v14M16 5v14" /></svg></button>
           <button id="reset" type="button" aria-label="流れをリセット" title="流れをリセット（R）"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6" /></svg></button>
           <button id="fullscreen" type="button" aria-label="全画面" title="全画面（F）"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" /></svg></button>
         </div>
       </footer>
     </div>
+    <button id="sound-on" class="sound-on" type="button" aria-label="音楽をオンにする" title="音楽をオンにする" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z M15 8a6 6 0 0 1 0 8 M18 5a10 10 0 0 1 0 14" /></svg>
+      <span>SOUND ON</span>
+    </button>
     <div id="error" class="error-panel" role="alert" hidden></div>
     <div id="debug" hidden></div>
     <noscript>この作品を表示するにはJavaScriptを有効にしてください。</noscript>
