@@ -42,7 +42,7 @@ layout: null
       {% elsif folder == "easy-drive001" %}
         {% assign title = "EASY DRIVE 001" %}
       {% elsif folder == "aftertouch001" %}
-        {% assign title = "AFTERTOUCH · 2D" %}
+        {% assign title = "AFTERTOUCH 001" %}
       {% elsif folder == "name-card" %}
         {% assign title = "Name Card" %}
       {% endif %}
@@ -51,9 +51,9 @@ layout: null
 <div class="info"><div><h2>{{ title | escape }}</h2><p>{% if folder == "aftertouch001" %}平面版 / Original flow{% else %}作品を開く / Explore artwork{% endif %}</p></div><span class="arrow" aria-hidden="true">↗</span></div>
 </a>
 {% if folder == "aftertouch001" %}
-<a class="work" href="./aftertouch001/?view=shoal&amp;clean=1" aria-label="AFTERTOUCH · 3D 立体・テキスト非表示版を開く">
+<a class="work" href="./aftertouch001/?view=shoal&amp;clean=1" aria-label="AFTERTOUCH 002 立体・テキスト非表示版を開く">
 <div class="cover" aria-hidden="true" style="filter:hue-rotate(185deg)"></div>
-<div class="info"><div><h2>AFTERTOUCH · 3D</h2><p>立体版・テキスト非表示 / Shoal</p></div><span class="arrow" aria-hidden="true">↗</span></div>
+<div class="info"><div><h2>AFTERTOUCH 002</h2><p>立体版・テキスト非表示 / Shoal</p></div><span class="arrow" aria-hidden="true">↗</span></div>
 </a>
 {% endif %}
     {% endunless %}

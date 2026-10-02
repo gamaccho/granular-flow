@@ -15,11 +15,12 @@ const client = new JevClient({
   staticPreview: import.meta.env.VITE_STATIC_PREVIEW === true,
   apiBase: import.meta.env.VITE_JEV_API_BASE ?? '',
 });
-if (client.provider === 'preview') document.querySelector('.edition span').textContent = '01 / PREVIEW';
-else if (client.apiBase) document.querySelector('.edition span').textContent = '01 / JEV';
+if (client.provider === 'preview') document.querySelector('.edition span').textContent = '001 / PREVIEW';
+else if (client.apiBase) document.querySelector('.edition span').textContent = '001 / JEV';
 if (spatial) {
+  document.querySelector('h1').innerHTML = 'AFTERTOUCH 002<span class="title-dot">.</span>';
   document.querySelector('.edition').firstChild.textContent = 'SPATIAL STUDY';
-  document.querySelector('.edition span').textContent = '02 / SHOAL';
+  document.querySelector('.edition span').textContent = '002 / SHOAL';
   document.querySelector('#intro p').innerHTML = '立体の流れに、触れる。<br /><span>Reach into the turning shoal.</span>';
 }
 const colors = { hesitant: '#8ec9ed', aggressive: '#f56751', tender: '#eab073', playful: '#b88bff' };

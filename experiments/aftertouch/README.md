@@ -2,24 +2,24 @@
 
 触れる速度と軌跡に応じて、粒子の流れと光が変化するThree.js作品です。Node.jsプロキシがTypeSafe Jevへ集約したジェスチャー指標を送り、型付きChoice結果を返します。APIキーを設定していない状態でも、ローカル判定で作品を操作できます。
 
-`gamaccho/granular-flow` の `experiments/aftertouch` に保存したテスト実装です。[GitHub Pagesの公開テスト](https://gamaccho.github.io/granular-flow/aftertouch001/)からRenderのJevプロキシへ接続します。遅延・失敗時はローカル判定で動作します。[ギャラリー](https://gamaccho.github.io/granular-flow/)には平面版「AFTERTOUCH · 2D」と立体・テキスト非表示版「AFTERTOUCH · 3D」を別カードで掲載しています。リポジトリのルートから使う場合は、先に `cd experiments/aftertouch` でこのフォルダーへ移動してください。
+`gamaccho/granular-flow` の `experiments/aftertouch` に保存したテスト実装です。[GitHub Pagesの公開テスト](https://gamaccho.github.io/granular-flow/aftertouch001/)からRenderのJevプロキシへ接続します。遅延・失敗時はローカル判定で動作します。[ギャラリー](https://gamaccho.github.io/granular-flow/)には平面版「AFTERTOUCH 001」と立体・テキスト非表示版「AFTERTOUCH 002」を別カードで掲載しています。リポジトリのルートから使う場合は、先に `cd experiments/aftertouch` でこのフォルダーへ移動してください。
 
 ## GitHub Pagesの公開テスト
 
 SNS共有・画面収録用の [作品だけの表示](https://gamaccho.github.io/granular-flow/aftertouch001/?view=shoal&clean=1) は `clean=1` を指定します。タイトル、説明、判定、接続表示、操作ボタン、デバッグ表示、マウスカーソルを隠し、タッチ反応は通常版と共通です。PCのSpace（一時停止）、R（リセット）、F（全画面）は利用できます。URLから `clean=1` を外すと通常表示へ戻ります。
 
-立体の渦の試作は [02 / SHOAL](https://gamaccho.github.io/granular-flow/aftertouch001/?view=shoal) で開けます。通常のURLは従来の平面版を保ちます。立体版はGPU上でXYZ位置・速度を更新し、空洞のある渦を透視投影します。ゆっくり変わる視点と前後の明暗で奥行きを表現し、指の動きを画面から立体空間へ変換して毛足をなびかせます。光の繊維による表現で、魚の形や個体間の群れ行動を再現するモデルではありません。Jev接続・ローカル判定は共通です。自動検証はデスクトップとモバイル比率のChromiumで行い、iPhone実機の描画速度は未検証です。
+立体の渦の試作は [002 / SHOAL](https://gamaccho.github.io/granular-flow/aftertouch001/?view=shoal) で開けます。通常のURLは従来の平面版を保ちます。立体版はGPU上でXYZ位置・速度を更新し、空洞のある渦を下から見上げる視点で透視投影します。ゆっくり変わる視点と前後の明暗で奥行きを表現し、指の動きを画面から立体空間へ変換して毛足をなびかせます。光の繊維による表現で、魚の形や個体間の群れ行動を再現するモデルではありません。Jev接続・ローカル判定は共通です。自動検証はデスクトップとモバイル比率のChromiumで行い、iPhone実機の描画速度は未検証です。
 
 公開先：**https://gamaccho.github.io/granular-flow/aftertouch001/**
 
-画面には「01 / JEV」と表示します。動きに応じた描画とローカル判定を続けながら、集約した7項目のジェスチャー指標を `https://aftertouch-jev-proxy.onrender.com` へ送ります。実際のJev応答が返った場合だけ、左下に「Jev · ジェスチャー判定」と表示します。遅延・失敗時は理由付きのローカル判定を表示します。サーバーやAPIキーを公開ファイルに含めません。
+画面には「001 / JEV」と表示します。動きに応じた描画とローカル判定を続けながら、集約した7項目のジェスチャー指標を `https://aftertouch-jev-proxy.onrender.com` へ送ります。実際のJev応答が返った場合だけ、左下に「Jev · ジェスチャー判定」と表示します。遅延・失敗時は理由付きのローカル判定を表示します。サーバーやAPIキーを公開ファイルに含めません。
 
 ```sh
 npm ci
 npm run build:pages
 ```
 
-`.env.pages` に公開可能な接続先URLだけを保存しています。通信なしのプレビュー版を作る場合は `VITE_JEV_API_BASE= npm run build:pages` を実行してください。その版には「01 / PREVIEW」「公開テスト · ローカル判定（Jevなし）」と表示します。
+`.env.pages` に公開可能な接続先URLだけを保存しています。通信なしのプレビュー版を作る場合は `VITE_JEV_API_BASE= npm run build:pages` を実行してください。その版には「001 / PREVIEW」「公開テスト · ローカル判定（Jevなし）」と表示します。
 
 生成された `dist` の内容をリポジトリの `aftertouch001/` に配置し、mainへ反映するとPagesで配信されます。アセットは相対URLなので、リポジトリのサブディレクトリから読み込めます。`VITE_JEV_API_BASE` が空の通常の `npm run dev` / `npm run build` では、従来どおり同じオリジンのプロキシへ接続します。
 

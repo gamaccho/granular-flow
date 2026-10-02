@@ -15,7 +15,7 @@ export class ShoalFlow extends ParticleFlow {
   constructor(canvas) {
     super(canvas);
     this.spatialCamera = new THREE.PerspectiveCamera(38, 1, 0.1, 30);
-    this.spatialCamera.zoom = 0.8;
+    this.spatialCamera.zoom = 0.88; // 10% larger than the previous 0.8 framing.
     // Reduce both rendered instances and simulation texels. Keep the original
     // per-fiber brightness instead of compensating for the lower population.
     this.count = Math.round(this.count * 0.8);
@@ -102,7 +102,7 @@ export class ShoalFlow extends ParticleFlow {
     const camera = this.spatialCamera;
     const distance = Math.max(3.4, 2.0 / camera.aspect) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)));
     const azimuth = 0.31 + Math.sin(this.time * 0.12) * 0.14;
-    camera.position.set(Math.sin(azimuth), 0.48, Math.cos(azimuth)).normalize().multiplyScalar(distance);
+    camera.position.set(Math.sin(azimuth), -0.48, Math.cos(azimuth)).normalize().multiplyScalar(distance);
     camera.lookAt(0, 0.05, 0);
     camera.updateMatrixWorld();
     this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);

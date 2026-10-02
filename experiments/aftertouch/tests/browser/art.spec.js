@@ -19,7 +19,7 @@ test('spatial shoal has moving depth, responds to brushing, and recovers after r
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
   await page.goto(new URL('?view=shoal&debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
-  await expect(page.locator('.edition span')).toHaveText('02 / SHOAL');
+  await expect(page.locator('.edition span')).toHaveText('002 / SHOAL');
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(5);
   const before = await page.evaluate(() => window.__AFTERTOUCH__.sampleMotion());
   const validDepth = (samples) => {
@@ -113,7 +113,7 @@ for (const view of ['flow', 'shoal']) test(`connected Pages ${view} uses the ext
   });
   await page.goto(new URL(`?debug=1&view=${view}`, process.env.AFTERTOUCH_CONNECTED_URL).href);
   await expect(page.locator('#error')).toBeHidden();
-  await expect(page.locator('.edition span')).toHaveText(view === 'shoal' ? '02 / SHOAL' : '01 / JEV');
+  await expect(page.locator('.edition span')).toHaveText(view === 'shoal' ? '002 / SHOAL' : '001 / JEV');
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(5);
   const viewport = page.viewportSize();
   await page.mouse.move(viewport.width * 0.55, viewport.height * 0.55);
@@ -143,7 +143,7 @@ test('static Pages preview loads assets under a subdirectory and responds withou
   await page.goto(new URL('?debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
   await expect(page.locator('#error')).toBeHidden();
   await expect(page.locator('#connection')).toHaveText('公開テスト · ローカル判定（Jevなし）');
-  await expect(page.locator('.edition span')).toHaveText('01 / PREVIEW');
+  await expect(page.locator('.edition span')).toHaveText('001 / PREVIEW');
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(5);
   const viewport = page.viewportSize();
   // Touch PointerEvents use the same input handlers on the mobile viewport.
