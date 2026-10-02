@@ -40,27 +40,40 @@ class StreetScene {
     c.restore();c.restore();
   }
   car(){
-    const dir=Math.random()<.5?-1:1;
-    return {x:dir>0?-160:928,dir,speed:213.75+Math.random()*33.75,y:716+Math.random()*18,
-      style:Math.floor(Math.random()*3),color:['#763e35','#59332f','#365b59','#39485e','#646053'][Math.floor(Math.random()*5)]};
+    const palette=['#842d35','#3a5e48','#284d67','#98642f','#62486d','#24736c','#925142','#292d35','#766333','#4d3c30','#465b83','#733e61'];
+    const previous=this.lastCar;
+    const dir=previous?-previous.dir:(Math.random()<.5?-1:1);
+    const styles=[0,1,2].filter(v=>!previous||v!==previous.style);
+    const colors=palette.filter(v=>!previous||v!==previous.color);
+    const car={x:dir>0?-190:958,dir,speed:(213.75+Math.random()*33.75)*1.3,y:716+Math.random()*18,
+      style:styles[Math.floor(Math.random()*styles.length)],color:colors[Math.floor(Math.random()*colors.length)]};
+    this.lastCar=car;return car;
   }
   drawCar(v,t){
-    const c=this.ctx;c.save();c.translate(v.x,v.y);const perspective=v.style===2?1.72:1.52;c.scale(v.dir*perspective,perspective);
-    c.fillStyle='#080d13';c.globalAlpha=.5;c.beginPath();c.ellipse(0,1,66,5,0,0,7);c.fill();c.globalAlpha=1;
-    c.fillStyle=v.color;c.beginPath();c.moveTo(-64,-10);c.lineTo(-62,-28);
-    if(v.style===0){c.lineTo(-34,-31);c.quadraticCurveTo(-24,-55,6,-52);c.quadraticCurveTo(23,-50,32,-30);}
-    else if(v.style===1){c.lineTo(-38,-28);c.lineTo(-22,-45);c.lineTo(12,-45);c.lineTo(32,-28);}
-    else {c.lineTo(-62,-38);c.lineTo(-10,-38);c.lineTo(-10,-55);c.quadraticCurveTo(-10,-60,0,-60);c.lineTo(24,-60);c.lineTo(34,-36);c.lineTo(57,-34);}
-    c.lineTo(59,-25);c.quadraticCurveTo(69,-22,67,-10);c.closePath();c.fill();
-    c.fillStyle='#1a2932';c.beginPath();
-    if(v.style===2){c.moveTo(-4,-38);c.lineTo(-4,-54);c.lineTo(20,-54);c.lineTo(27,-38);}
-    else {c.moveTo(-23,-32);c.lineTo(-15,v.style===0?-47:-40);c.lineTo(10,v.style===0?-47:-40);c.lineTo(26,-31);}
-    c.closePath();c.fill();
-    if(v.style===2){c.strokeStyle='#252b2b';c.lineWidth=2;for(let x=-54;x<-12;x+=12){c.beginPath();c.moveTo(x,-35);c.lineTo(x,-20);c.stroke();}}
-    c.strokeStyle='#9c9c91';c.lineWidth=1;c.beginPath();c.moveTo(-57,-17);c.lineTo(62,-17);c.moveTo(0,-44);c.lineTo(0,-15);c.stroke();
-    for(const x of [-40,42]){c.fillStyle='#0b1016';c.beginPath();c.arc(x,-9,10,0,7);c.fill();c.fillStyle='#777b7a';c.beginPath();c.arc(x,-9,5,0,7);c.fill();c.strokeStyle='#b4b1a3';c.beginPath();c.moveTo(x,-9);c.lineTo(x+Math.cos(t*v.speed*.15)*4,-9+Math.sin(t*v.speed*.15)*4);c.stroke();}
-    c.fillStyle='#ffe0a0';c.fillRect(61,-24,5,7);c.fillStyle='#b33224';c.fillRect(-63,-24,4,6);
-    c.globalAlpha=.12;c.fillStyle='#eac788';c.beginPath();c.moveTo(65,-18);c.lineTo(160,5);c.lineTo(73,2);c.fill();c.restore();
+    const c=this.ctx;c.save();c.translate(v.x,v.y);const scale=v.style===2?1.72:1.52;c.scale(v.dir*scale,scale);
+    const oval=(x,y,rx,ry,color)=>{c.fillStyle=color;c.beginPath();c.ellipse(x,y,rx,ry,0,0,7);c.fill();};
+    oval(0,2,69,5,'rgba(5,9,14,.5)');
+    // Rounded rear-engine compact, upright retro saloon, and rounded-fender pickup.
+    c.beginPath();c.moveTo(-63,-12);
+    if(v.style===0){c.bezierCurveTo(-68,-34,-43,-55,-27,-56);c.bezierCurveTo(-11,-60,8,-57,18,-47);c.quadraticCurveTo(31,-30,44,-29);c.quadraticCurveTo(65,-27,65,-12);}
+    else if(v.style===1){c.lineTo(-61,-43);c.quadraticCurveTo(-57,-61,-46,-62);c.lineTo(7,-62);c.quadraticCurveTo(15,-62,20,-52);c.lineTo(30,-36);c.quadraticCurveTo(59,-37,64,-28);c.lineTo(65,-12);}
+    else {c.lineTo(-66,-37);c.lineTo(-10,-37);c.lineTo(-10,-60);c.quadraticCurveTo(-8,-67,5,-67);c.lineTo(24,-67);c.quadraticCurveTo(31,-66,33,-54);c.lineTo(34,-35);c.quadraticCurveTo(63,-37,68,-22);c.lineTo(68,-12);}
+    c.closePath();const body=c.createLinearGradient(0,-65,0,0);body.addColorStop(0,v.color);body.addColorStop(.55,v.color);body.addColorStop(1,'#1c2429');c.fillStyle=body;c.fill();
+    c.fillStyle='#283c45';c.beginPath();
+    if(v.style===0){c.moveTo(-42,-34);c.quadraticCurveTo(-35,-53,-25,-52);c.lineTo(4,-51);c.lineTo(18,-33);}
+    else if(v.style===1){c.moveTo(-49,-38);c.lineTo(-46,-56);c.lineTo(5,-56);c.lineTo(23,-37);}
+    else {c.moveTo(-4,-38);c.lineTo(-4,-59);c.quadraticCurveTo(5,-63,24,-59);c.lineTo(27,-38);}
+    c.closePath();c.fill();c.strokeStyle='rgba(156,184,183,.45)';c.lineWidth=1;c.stroke();
+    c.strokeStyle=v.color;c.lineWidth=3;c.beginPath();c.moveTo(v.style===2?5:-17,-57);c.lineTo(v.style===2?5:-17,-34);c.stroke();
+    if(v.style===2){c.fillStyle='#231e21';c.fillRect(-62,-37,50,5);c.strokeStyle='#784c47';c.lineWidth=1;c.strokeRect(-62,-36,50,18);}
+    // Separate bulbous fenders, chrome sill, bumper and round lamps.
+    for(const x of [-40,42]){oval(x,-14,18,v.style===2?19:16,v.color);oval(x,-9,11,11,'#10151a');oval(x,-9,6,6,v.style===2?v.color:'#7a8385');c.strokeStyle='#b0a892';c.lineWidth=.7;c.beginPath();c.arc(x,-9,5,t*v.speed*.08,t*v.speed*.08+2.4);c.stroke();}
+    c.strokeStyle='#8b9695';c.lineWidth=1.4;c.beginPath();c.moveTo(-22,-13);c.lineTo(24,-13);c.moveTo(57,-10);c.lineTo(70,-10);c.moveTo(-68,-11);c.lineTo(-58,-11);c.stroke();
+    c.strokeStyle='rgba(17,24,30,.6)';c.lineWidth=.8;c.strokeRect(v.style===2?-6:-16,-33,v.style===2?35:42,18);
+    c.fillStyle='#a5aaa4';c.fillRect(v.style===2?-1:-9,-29,7,1.5);
+    oval(61,-29,v.style===1?5:3.5,4,'#e2c88b');oval(-63,-23,2,3,'#8d2d25');
+    if(v.style===0){c.strokeStyle='#343b35';c.lineWidth=1;for(let i=0;i<4;i++){c.beginPath();c.moveTo(43+i*2,-24);c.lineTo(43+i*2,-19);c.stroke();}}
+    c.globalAlpha=.10;c.fillStyle='#eac788';c.beginPath();c.moveTo(65,-26);c.lineTo(150,4);c.lineTo(73,2);c.fill();c.restore();
   }
   drawWindows(dt){
     const c=this.ctx;
@@ -79,7 +92,7 @@ class StreetScene {
     this.people.sort((a,b)=>a.y-b.y);
     this.people.forEach((p,i)=>{p.x+=p.dir*p.speed*dt;if(p.x < -65||p.x>833){const dir=p.dir;this.people[i]=this.person(dir>0?-60:828);this.people[i].dir=dir;}this.drawPerson(this.people[i],t);});
     this.nextCar-=dt;if(this.nextCar<=0){this.cars.push(this.car());this.nextCar=7+Math.random()*10;}
-    this.cars=this.cars.filter(v=>v.x>-180&&v.x<948);
+    this.cars=this.cars.filter(v=>v.x>-215&&v.x<983);
     for(const v of this.cars){v.x+=v.dir*v.speed*dt;this.drawCar(v,t);}
     this.soft.drawImage(this.canvas,0,0,256,256);
     this.blurCtx.drawImage(this.texture,0,0,64,64);
