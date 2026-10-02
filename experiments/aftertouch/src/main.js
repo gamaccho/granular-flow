@@ -23,16 +23,19 @@ const music = spatial ? new BackgroundMusic(`${import.meta.env.BASE_URL}audio/de
 musicButton.hidden = !music;
 musicButton.addEventListener('click', () => {
   if (!music) return;
-  if (!music.snapshot().playing && !music.muted) music.resume();
+  if (!music.snapshot().playing && !music.muted) music.resume(true);
   else music.toggle();
 });
 // Capture touch before decoding completes, so iPhone can unlock the context
 // even when the first gesture happens during the download.
 const unlockMusic = (event) => {
-  if (event.target.closest?.('#music')) return;
-  music?.resume();
+  if (!event.isTrusted || event.target.closest?.('#music')) return;
+  music?.resume(true);
 };
 document.addEventListener('pointerdown', unlockMusic, { capture: true, passive: true });
+document.addEventListener('pointerup', unlockMusic, { capture: true, passive: true });
+document.addEventListener('touchstart', unlockMusic, { capture: true, passive: true });
+document.addEventListener('click', unlockMusic, { capture: true, passive: true });
 document.addEventListener('touchend', unlockMusic, { capture: true, passive: true });
 document.addEventListener('keydown', unlockMusic, { capture: true });
 if (music) void music.load();

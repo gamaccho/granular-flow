@@ -277,7 +277,7 @@ test('real Vite proxy and artwork run together without an API key', async ({ pag
 });
 
 
-test('spatial shoal BGM loads independently, decodes and starts a native gapless loop', async ({ page }) => {
+test('spatial shoal BGM loads independently, decodes and starts a native gapless loop', async ({ page }, testInfo) => {
   test.setTimeout(90000);
   test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
   let releaseDownload;
@@ -292,7 +292,8 @@ test('spatial shoal BGM loads independently, decodes and starts a native gapless
   const frames = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(frames + 2);
   // Unlock while downloading, as a phone user can do before decoding is ready.
-  await page.locator('#art').click({ position: { x: 100, y: 200 } });
+  if (testInfo.project.name === 'mobile') await page.touchscreen.tap(100, 200);
+  else await page.locator('#art').click({ position: { x: 100, y: 200 } });
   releaseDownload();
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().status), { timeout: 30000 }).toBe('ready');
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().playing)).toBe(true);

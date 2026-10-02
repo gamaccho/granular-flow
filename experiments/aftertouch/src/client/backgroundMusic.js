@@ -6,6 +6,7 @@ export class BackgroundMusic {
     this.onChange = onChange;
     this.context = null;
     this.source = null;
+    this.primer = null;
     this.buffer = null;
     this.muted = false;
     this.disposed = false;
@@ -31,11 +32,8 @@ export class BackgroundMusic {
       if (this.disposed) return;
       this.buffer = await this.context.decodeAudioData(data);
       if (this.disposed) return;
-      this.source = this.context.createBufferSource();
-      this.source.buffer = this.buffer;
-      this.source.loop = true;
-      this.source.connect(this.gain);
-      this.source.start();
+      this.startSource();
+      this.stopPrimer();
       this.status = 'ready';
       this.resume();
       this.notify();
@@ -48,8 +46,36 @@ export class BackgroundMusic {
     }
   }
 
-  resume() {
+  startSource() {
+    this.source?.stop();
+    this.source?.disconnect();
+    this.source = this.context.createBufferSource();
+    this.source.buffer = this.buffer;
+    this.source.loop = true;
+    this.source.connect(this.gain);
+    this.source.start();
+  }
+
+  stopPrimer() {
+    this.primer?.stop();
+    this.primer?.disconnect();
+    this.primer = null;
+  }
+
+  resume(fromGesture = false) {
     if (!this.context || this.disposed || this.muted || this.status === 'error') return;
+    // Call start and resume synchronously inside the gesture, without waiting
+    // for decode or a promise. Some mobile WebKit sessions require both.
+    if (fromGesture && this.context.state !== 'running') {
+      if (this.buffer) this.startSource();
+      else if (!this.primer) {
+        this.primer = this.context.createBufferSource();
+        this.primer.buffer = this.context.createBuffer(1, 4096, this.context.sampleRate);
+        this.primer.loop = true;
+        this.primer.connect(this.context.destination);
+        this.primer.start();
+      }
+    }
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
     void this.context.resume().then(() => this.notify()).catch(() => this.notify());
   }
@@ -57,7 +83,7 @@ export class BackgroundMusic {
   toggle() {
     this.muted = !this.muted;
     if (this.gain) this.gain.gain.setTargetAtTime(this.muted ? 0 : 0.8, this.context.currentTime, 0.08);
-    if (!this.muted) this.resume();
+    if (!this.muted) this.resume(true);
     this.notify();
   }
 
@@ -76,6 +102,7 @@ export class BackgroundMusic {
     this.abort.abort();
     if (this.context) this.context.onstatechange = null;
     this.source?.stop();
+    this.stopPrimer();
     void this.context?.close().catch(() => {});
     this.source = null;
     this.buffer = null;
