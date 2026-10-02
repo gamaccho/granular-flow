@@ -3,10 +3,48 @@ class StreetScene {
   constructor(){
     this.canvas=document.createElement('canvas');this.canvas.width=this.canvas.height=768;
     this.ctx=this.canvas.getContext('2d',{alpha:false});this.texture=document.createElement('canvas');this.texture.width=this.texture.height=256;this.soft=this.texture.getContext('2d',{alpha:false});this.blur=document.createElement('canvas');this.blur.width=this.blur.height=64;this.blurCtx=this.blur.getContext('2d',{alpha:false});this.image=new Image();this.ready=false;this.last=-1;
-    this.image.onload=()=>{this.ready=true;this.last=-1;};
+    this.image.onload=()=>{this.ready=true;this.createSkyGlow();this.last=-1;};
     this.image.onerror=()=>{document.querySelector('#error').hidden=false;document.querySelector('#error').textContent='背景画像を読み込めませんでした。再読み込みしてください。';};
     this.windows=[{x:503,y:332,w:24,h:48,on:true,top:'#e0aa64',bottom:'#f2c786',next:5+Math.random()*7},{x:299,y:326,w:25,h:51,on:true,top:'#b97842',bottom:'#ce9254',next:10+Math.random()*10}];
+    this.thunderNext=null;this.thunderPulses=[];
     this.cars=[];this.nextCar=3+Math.random()*4;this.image.src='street.jpg';this.people=Array.from({length:10},()=>this.person(Math.random()*900-70));
+  }
+  createSkyGlow(){
+    // Derive a sky-only matte from the photograph. Rooftops and aerials stay dark.
+    const layer=document.createElement('canvas');layer.width=layer.height=768;
+    const c=layer.getContext('2d');c.drawImage(this.image,0,0,768,768);
+    const pixels=c.getImageData(0,0,768,768),d=pixels.data;
+    for(let y=0;y<768;y++)for(let x=0;x<768;x++){
+      const i=(y*768+x)*4,r=d[i],g=d[i+1],b=d[i+2];
+      const sky=x>=350&&x<=592&&y<199&&r>=18&&r<=34&&g>=31&&g<=51&&b>=42&&b<=65&&b-r>18&&g-r>10;
+      const spread=Math.max(0,1-Math.pow((x-470)/150,2))*(.65+.35*(1-y/220));
+      d[i]=155;d[i+1]=191;d[i+2]=229;d[i+3]=sky?Math.round(255*spread):0;
+    }
+    c.putImageData(pixels,0,0);this.skyGlow=layer;
+  }
+  drawThunder(t){
+    if(this.thunderNext===null)this.thunderNext=t+17+Math.random()*6;
+    if(t>=this.thunderNext){
+      this.thunderNext=t+17+Math.random()*6;
+      const count=2+Math.floor(Math.random()*3);let start=t;
+      this.thunderPulses=[];
+      for(let i=0;i<count;i++){
+        const duration=.12+Math.random()*.14;
+        this.thunderPulses.push({start,duration,strength:.055+Math.random()*.065});
+        start+=duration+.05+Math.random()*.12;
+      }
+    }
+    let glow=0;
+    for(const p of this.thunderPulses){
+      const age=t-p.start;
+      if(age>=0&&age<p.duration){
+        // A brief soft rise followed by a longer cloud-light decay.
+        const u=age/p.duration;
+        glow=Math.max(glow,p.strength*(u<.2?Math.sin(u/.2*Math.PI/2):Math.pow(1-(u-.2)/.8,1.6)));
+      }
+    }
+    if(glow>0&&this.skyGlow){const c=this.ctx;c.save();c.globalAlpha=glow;c.globalCompositeOperation='screen';c.drawImage(this.skyGlow,0,0);c.restore();}
+    this.thunderPulses=this.thunderPulses.filter(p=>t<p.start+p.duration);
   }
   person(x){
     const colors=['#18212d','#34303d','#62554b','#29454a','#51303a','#877668','#283443'];
@@ -112,6 +150,7 @@ class StreetScene {
     if(this.last>=0&&t-this.last<1/24)return false;
     const dt=this.last<0?0:Math.min(t-this.last,.1);this.last=t;const c=this.ctx;
     c.fillStyle='#14212a';c.fillRect(0,0,768,768);if(this.ready)c.drawImage(this.image,0,0,768,768);
+    this.drawThunder(t);
     this.drawWindows(dt);
     this.people.sort((a,b)=>a.y-b.y);
     this.people.forEach((p,i)=>{p.x+=p.dir*p.speed*dt;if(p.x < -65||p.x>833){const dir=p.dir;this.people[i]=this.person(dir>0?-60:828);this.people[i].dir=dir;}this.drawPerson(this.people[i],t);});
