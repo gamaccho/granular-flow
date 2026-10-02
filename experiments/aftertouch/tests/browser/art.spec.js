@@ -292,7 +292,7 @@ test('spatial shoal BGM loads independently, decodes and starts a native gapless
   const frames = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(frames + 2);
   // Unlock while downloading, as a phone user can do before decoding is ready.
-  await page.locator('#art').tap({ position: { x: 100, y: 200 } });
+  await page.locator('#art').click({ position: { x: 100, y: 200 } });
   releaseDownload();
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().status), { timeout: 30000 }).toBe('ready');
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().playing)).toBe(true);
