@@ -5,7 +5,7 @@ class StreetScene {
     this.ctx=this.canvas.getContext('2d',{alpha:false});this.texture=document.createElement('canvas');this.texture.width=this.texture.height=256;this.soft=this.texture.getContext('2d',{alpha:false});this.blur=document.createElement('canvas');this.blur.width=this.blur.height=64;this.blurCtx=this.blur.getContext('2d',{alpha:false});this.image=new Image();this.ready=false;this.last=-1;
     this.image.onload=()=>{this.ready=true;this.last=-1;};
     this.image.onerror=()=>{document.querySelector('#error').hidden=false;document.querySelector('#error').textContent='背景画像を読み込めませんでした。再読み込みしてください。';};
-    this.windows=[{x:503,y:332,w:24,h:48,on:true,level:1,next:5+Math.random()*7},{x:550,y:332,w:24,h:49,on:true,level:1,next:10+Math.random()*10}];
+    this.windows=[{x:503,y:332,w:24,h:48,on:true,top:'#e0aa64',bottom:'#f2c786',next:5+Math.random()*7},{x:299,y:326,w:25,h:51,on:true,top:'#b97842',bottom:'#ce9254',next:10+Math.random()*10}];
     this.cars=[];this.nextCar=3+Math.random()*4;this.image.src='street.jpg';this.people=Array.from({length:10},()=>this.person(Math.random()*900-70));
   }
   person(x){
@@ -41,7 +41,7 @@ class StreetScene {
   }
   car(){
     const dir=Math.random()<.5?-1:1;
-    return {x:dir>0?-160:928,dir,speed:(95+Math.random()*70)*1.5,y:698+Math.random()*20,
+    return {x:dir>0?-160:928,dir,speed:213.75+Math.random()*33.75,y:698+Math.random()*20,
       style:Math.floor(Math.random()*3),color:['#763e35','#59332f','#365b59','#39485e','#646053'][Math.floor(Math.random()*5)]};
   }
   drawCar(v,t){
@@ -66,9 +66,8 @@ class StreetScene {
     const c=this.ctx;
     for(const w of this.windows){
       w.next-=dt;if(w.next<=0){w.on=!w.on;w.next=12+Math.random()*28;}
-      w.level+=(Number(w.on)-w.level)*Math.min(1,dt*4);
       c.fillStyle='#19282c';c.fillRect(w.x,w.y,w.w,w.h);
-      c.globalAlpha=w.level;const light=c.createLinearGradient(0,w.y,0,w.y+w.h);light.addColorStop(0,'#e0aa64');light.addColorStop(1,'#f2c786');c.fillStyle=light;c.fillRect(w.x,w.y,w.w,w.h);c.globalAlpha=1;
+      if(w.on){const light=c.createLinearGradient(0,w.y,0,w.y+w.h);light.addColorStop(0,w.top);light.addColorStop(1,w.bottom);c.fillStyle=light;c.fillRect(w.x,w.y,w.w,w.h);}
       c.strokeStyle='#182326';c.lineWidth=2;c.strokeRect(w.x,w.y,w.w,w.h);c.beginPath();c.moveTo(w.x+w.w*.5,w.y);c.lineTo(w.x+w.w*.5,w.y+w.h);c.moveTo(w.x,w.y+w.h*.46);c.lineTo(w.x+w.w,w.y+w.h*.46);c.stroke();
     }
   }
