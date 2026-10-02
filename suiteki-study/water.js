@@ -8,31 +8,23 @@
   const vertex = `attribute vec2 position;void main(){gl_Position=vec4(position,0.,1.);}`;
   const fragment = `precision highp float;
 uniform vec2 resolution;uniform vec4 drops[40];uniform float night;uniform float time;
-float glow(vec2 p,vec2 center,vec2 radius){
-  vec2 q=(p-center)/radius;return exp(-dot(q,q)*1.7);
-}
+uniform sampler2D street;
 vec3 paper(vec2 p){
-  // Defocused street perspective: dark facades, warm lamps and wet-road reflections.
-  float road=1.-smoothstep(-.28,.13,p.y);
-  vec3 c=mix(vec3(.022,.035,.062),vec3(.045,.065,.085),road);
-  float avenue=exp(-pow(p.x/(.10+max(0.,.12-p.y)*.85),2.));
-  c+=vec3(.035,.045,.06)*avenue;
-  c+=vec3(.09,.025,.06)*glow(p,vec2(-.38,.15),vec2(.19,.38));
-  c+=vec3(.018,.10,.14)*glow(p,vec2(.40,.06),vec2(.14,.32));
-  for(int j=0;j<8;j++){
-    float k=float(j);float side=mod(k,2.)*2.-1.;float depth=floor(k*.5)/3.;
-    vec2 lamp=vec2(side*(.10+depth*.48),.09+depth*.32);
-    vec3 tint=mix(vec3(1.,.48,.15),vec3(.30,.66,1.),mod(k,3.)*.36);
-    float radius=.025+depth*.04;
-    c+=tint*glow(p,lamp,vec2(radius))* .78;
-    c+=tint*glow(p,lamp,vec2(radius*2.5))*.10;
-    c+=tint*glow(p,vec2(lamp.x,-.19-depth*.42),vec2(radius*.9,.14+depth*.19))*.20;
-  }
-  c+=vec3(.9,.08,.035)*glow(p,vec2(-.065,-.025),vec2(.030,.022));
-  c+=vec3(.95,.68,.35)*glow(p,vec2(.065,-.03),vec2(.032,.025));
-  c+=vec3(.1,.42,.48)*glow(p,vec2(.31,.22),vec2(.085,.045));
-  c*=1.-.22*smoothstep(.25,1.1,length(p));
-  return c*mix(1.35,1.,night);
+  vec2 uv=p*min(resolution.x,resolution.y)/resolution+.5;
+  float aspect=resolution.x/resolution.y;
+  if(aspect<1.)uv.x=(uv.x-.5)*aspect+.5;
+  else uv.y=uv.y/aspect;
+  vec3 c=texture2D(street,uv).rgb*.20;
+  vec2 r=vec2(.004);
+  c+=texture2D(street,uv+vec2(r.x,0.)).rgb*.12;
+  c+=texture2D(street,uv-vec2(r.x,0.)).rgb*.12;
+  c+=texture2D(street,uv+vec2(0.,r.y)).rgb*.12;
+  c+=texture2D(street,uv-vec2(0.,r.y)).rgb*.12;
+  c+=texture2D(street,uv+r).rgb*.08;
+  c+=texture2D(street,uv-r).rgb*.08;
+  c+=texture2D(street,uv+vec2(r.x,-r.y)).rgb*.08;
+  c+=texture2D(street,uv+vec2(-r.x,r.y)).rgb*.08;
+  return c*mix(1.15,.88,night);
 }
 void main(){
   vec2 p=(gl_FragCoord.xy-.5*resolution)/min(resolution.x,resolution.y);
@@ -83,6 +75,11 @@ void main(){
   const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
   const position=gl.getAttribLocation(program,'position');gl.enableVertexAttribArray(position);gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
   const uniforms=Object.fromEntries(['resolution','drops[0]','night','time'].map(k=>[k,gl.getUniformLocation(program,k)]));
+  const streetScene=new StreetScene();const streetTexture=gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,streetTexture);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.uniform1i(gl.getUniformLocation(program,'street'),0);
   const packed=new Float32Array(160);const rain=new RainGlass();let drops=rain.drops,width=1,height=1,unit=1,held=null,pointerId=null,target={x:0,y:0},last=0,night=1,nightTarget=1;
   const spray=document.querySelector('#spray');const ctx=spray.getContext('2d');
   function resize(){width=innerWidth;height=innerHeight;unit=Math.min(width,height);const scale=Math.min(devicePixelRatio||1,1.65,Math.sqrt(1800000/(width*height)));canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);gl.viewport(0,0,canvas.width,canvas.height);spray.width=canvas.width;spray.height=canvas.height;rain.bounds(width/unit,height/unit);}
@@ -98,6 +95,7 @@ void main(){
   function frame(ms){
     requestAnimationFrame(frame);if(document.hidden||gl.isContextLost()){last=ms;return;}
     const dt=Math.min((ms-last)/1000,.035)||.016;last=ms;const t=ms*.001;
+    if(streetScene.update(t))gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,streetScene.texture);
     held=rain.step(dt,held,target);drops=rain.drops;
     ctx.clearRect(0,0,spray.width,spray.height);
     const pixels=Math.min(spray.width,spray.height);
