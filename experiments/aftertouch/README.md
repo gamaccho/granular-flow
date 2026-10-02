@@ -2,7 +2,7 @@
 
 触れる速度と軌跡に応じて、粒子の流れと光が変化するThree.js作品です。Node.jsプロキシがTypeSafe Jevへ集約したジェスチャー指標を送り、型付きChoice結果を返します。APIキーを設定していない状態でも、ローカル判定で作品を操作できます。
 
-`gamaccho/granular-flow` の `experiments/aftertouch` に保存したテスト実装です。[GitHub Pagesの公開テスト](https://gamaccho.github.io/granular-flow/aftertouch001/)からRenderのJevプロキシへ接続します。遅延・失敗時はローカル判定で動作します。ギャラリーにはまだ掲載していません。リポジトリのルートから使う場合は、先に `cd experiments/aftertouch` でこのフォルダーへ移動してください。
+`gamaccho/granular-flow` の `experiments/aftertouch` に保存したテスト実装です。[GitHub Pagesの公開テスト](https://gamaccho.github.io/granular-flow/aftertouch001/)からRenderのJevプロキシへ接続します。遅延・失敗時はローカル判定で動作します。[ギャラリー](https://gamaccho.github.io/granular-flow/)には平面版「AFTERTOUCH · 2D」と立体・テキスト非表示版「AFTERTOUCH · 3D」を別カードで掲載しています。リポジトリのルートから使う場合は、先に `cd experiments/aftertouch` でこのフォルダーへ移動してください。
 
 ## GitHub Pagesの公開テスト
 
