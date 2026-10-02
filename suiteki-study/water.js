@@ -9,6 +9,7 @@
   const fragment = `precision highp float;
 uniform vec2 resolution;uniform vec4 drops[40];uniform float night;uniform float time;
 uniform sampler2D street;uniform sampler2D mist;uniform sampler2D streetBlur;
+uniform sampler2D frogImage;uniform vec4 frogRect;
 float haze;
 vec3 paper(vec2 p){
   vec2 uv=p*min(resolution.x,resolution.y)/resolution+.5;
@@ -60,6 +61,7 @@ void main(){
     vec3 water=mix(refracted,outdoor,rim*.20)*(1.-rim*.13);
     col=mix(col,water,edge);
   }
+  if(frogRect.z>0.){vec2 uv=(gl_FragCoord.xy/resolution-frogRect.xy)/frogRect.zw+.5;if(uv.x>=0.&&uv.x<=1.&&uv.y>=0.&&uv.y<=1.){vec4 frog=texture2D(frogImage,uv);col=mix(col,frog.rgb*mix(.83,.66,night),frog.a);}}
   float veil=haze*(.34+.055*sin(p.x*5.+p.y*3.));
   col=mix(col,vec3(.30,.34,.35)+bg*.16,veil);
   float grain=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453)-.5;
@@ -102,10 +104,13 @@ void main(){
     const pixels=fogCtx.getImageData(0,0,256,256).data;for(let i=0;i<fogLevels.length;i++)fogLevels[i]=pixels[i*4];
     fogRecovering=true;previousWipe={x,y};fogDirty=true;
   }
+  const visitor=new FrogVisitor();const frogTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,frogTexture);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.uniform1i(gl.getUniformLocation(program,'frogImage'),3);const frogRect=gl.getUniformLocation(program,'frogRect');gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,visitor.canvas);
   const packed=new Float32Array(160);const rain=new RainGlass();let drops=rain.drops,width=1,height=1,unit=1,held=null,pointerId=null,target={x:0,y:0},last=0,night=0,nightTarget=0;
   const spray=document.querySelector('#spray');const ctx=spray.getContext('2d');
   function resize(){width=innerWidth;height=innerHeight;unit=Math.min(width,height);const scale=Math.min(devicePixelRatio||1,1.65,Math.sqrt(1800000/(width*height)));canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);gl.viewport(0,0,canvas.width,canvas.height);spray.width=canvas.width;spray.height=canvas.height;rain.bounds(width/unit,height/unit);}
-  function reset(){held=null;rain.reset();drops=rain.drops;resetFog();}
+  function reset(){visitor.reset();held=null;rain.reset();drops=rain.drops;resetFog();}
   function point(e){return {x:(e.clientX-width/2)/unit,y:(height/2-e.clientY)/unit};}
   canvas.addEventListener('pointerdown',e=>{if(pointerId!==null)return;pointerId=e.pointerId;canvas.setPointerCapture(e.pointerId);previousWipe=null;wipe(e);});
   canvas.addEventListener('pointermove',e=>{if(e.pointerId===pointerId)wipe(e);});
@@ -119,6 +124,8 @@ void main(){
     const dt=Math.min((ms-last)/1000,.035)||.016;last=ms;const t=ms*.001;
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,streetTexture);
     if(streetScene.update(t)){gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,streetScene.texture);gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,blurTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,streetScene.blur);}
+    if(visitor.update(dt,width,height)){gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,frogTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,visitor.canvas);}
+    gl.uniform4fv(frogRect,visitor.rect);
     recoverFog(ms);
     if(fogDirty){gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,fogTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,fog);fogDirty=false;}
     held=rain.step(dt,held,target);drops=rain.drops;
