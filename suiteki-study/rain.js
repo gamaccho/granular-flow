@@ -35,7 +35,7 @@ class RainGlass {
       this.spawnRain();
     }
     for(let i=this.merges.length-1;i>=0;i--){
-      const m=this.merges[i],a=m.a,b=m.b;m.t=Math.min(1,m.t+dt/.62);
+      const m=this.merges[i],a=m.a,b=m.b;m.t=Math.min(1,m.t+dt/.31);
       const e=m.t*m.t*(3-2*m.t);
       if(held===a||held===b){held=a;m.vx+=(target.x-m.x)*dt*110;m.vy+=(target.y-m.y)*dt*110;m.vx*=Math.exp(-16*dt);m.vy*=Math.exp(-16*dt);}
       else if(a.falling||b.falling){m.vy-=dt*1.1;}
