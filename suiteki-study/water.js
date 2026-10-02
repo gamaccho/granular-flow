@@ -10,7 +10,25 @@
 uniform vec2 resolution;uniform vec4 drops[40];uniform float night;uniform float time;
 uniform sampler2D street;uniform sampler2D mist;uniform sampler2D streetBlur;
 uniform sampler2D frogImage;uniform vec4 frogRect;
+uniform float frogBlurAmount;uniform float pixelRatio;
 float haze;
+vec4 frogThroughGlass(vec2 uv){
+  float defocus=max(smoothstep(.03,1.,haze),clamp(frogBlurAmount,0.,1.));
+  // Mipmaps and all nine taps contain premultiplied color. Transparent pixels
+  // therefore soften the silhouette without importing a dark cutout fringe.
+  float bias=log2(1.+14.*pixelRatio*defocus);
+  vec2 d=vec2(5.5*pixelRatio*defocus)/(frogRect.zw*resolution);
+  vec4 c=texture2D(frogImage,uv,bias)*.25;
+  c+=texture2D(frogImage,uv+vec2(d.x,0.),bias)*.125;
+  c+=texture2D(frogImage,uv-vec2(d.x,0.),bias)*.125;
+  c+=texture2D(frogImage,uv+vec2(0.,d.y),bias)*.125;
+  c+=texture2D(frogImage,uv-vec2(0.,d.y),bias)*.125;
+  c+=texture2D(frogImage,uv+d,bias)*.0625;
+  c+=texture2D(frogImage,uv-d,bias)*.0625;
+  c+=texture2D(frogImage,uv+vec2(d.x,-d.y),bias)*.0625;
+  c+=texture2D(frogImage,uv+vec2(-d.x,d.y),bias)*.0625;
+  return c;
+}
 vec3 paper(vec2 p){
   vec2 uv=p*min(resolution.x,resolution.y)/resolution+.5;
   float aspect=resolution.x/resolution.y;
@@ -61,7 +79,13 @@ void main(){
     vec3 water=mix(refracted,outdoor,rim*.20)*(1.-rim*.13);
     col=mix(col,water,edge);
   }
-  if(frogRect.z>0.){vec2 uv=(gl_FragCoord.xy/resolution-frogRect.xy)/frogRect.zw+.5;if(uv.x>=0.&&uv.x<=1.&&uv.y>=0.&&uv.y<=1.){vec4 frog=texture2D(frogImage,uv);col=mix(col,frog.rgb*mix(.83,.66,night),frog.a);}}
+  if(frogRect.z>0.){
+    vec2 uv=(gl_FragCoord.xy/resolution-frogRect.xy)/frogRect.zw+.5;
+    if(uv.x>=0.&&uv.x<=1.&&uv.y>=0.&&uv.y<=1.){
+      vec4 frog=frogThroughGlass(uv);
+      col=col*(1.-frog.a)+frog.rgb*mix(.83,.66,night);
+    }
+  }
   float veil=haze*(.34+.055*sin(p.x*5.+p.y*3.));
   col=mix(col,vec3(.30,.34,.35)+bg*.16,veil);
   float grain=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453)-.5;
@@ -105,8 +129,19 @@ void main(){
     fogRecovering=true;previousWipe={x,y};fogDirty=true;
   }
   const visitor=new FrogVisitor();const frogTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,frogTexture);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  gl.uniform1i(gl.getUniformLocation(program,'frogImage'),3);const frogRect=gl.getUniformLocation(program,'frogRect');gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,visitor.canvas);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.uniform1i(gl.getUniformLocation(program,'frogImage'),3);
+  const frogRect=gl.getUniformLocation(program,'frogRect');
+  const frogBlurAmount=gl.getUniformLocation(program,'frogBlurAmount');
+  const pixelRatio=gl.getUniformLocation(program,'pixelRatio');
+  function uploadFrog(){
+    gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,frogTexture);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,true);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,visitor.canvas);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+  }
+  uploadFrog();
   const packed=new Float32Array(160);const rain=new RainGlass();let drops=rain.drops,width=1,height=1,unit=1,held=null,pointerId=null,target={x:0,y:0},last=0,night=0,nightTarget=0;
   const spray=document.querySelector('#spray');const ctx=spray.getContext('2d');
   function resize(){width=innerWidth;height=innerHeight;unit=Math.min(width,height);const scale=Math.min(devicePixelRatio||1,1.65,Math.sqrt(1800000/(width*height)));canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);gl.viewport(0,0,canvas.width,canvas.height);spray.width=canvas.width;spray.height=canvas.height;rain.bounds(width/unit,height/unit);}
@@ -124,8 +159,10 @@ void main(){
     const dt=Math.min((ms-last)/1000,.035)||.016;last=ms;const t=ms*.001;
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,streetTexture);
     if(streetScene.update(t)){gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,streetScene.texture);gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,blurTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,streetScene.blur);}
-    if(visitor.update(dt,width,height)){gl.activeTexture(gl.TEXTURE3);gl.bindTexture(gl.TEXTURE_2D,frogTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,visitor.canvas);}
+    if(visitor.update(dt,width,height))uploadFrog();
     gl.uniform4fv(frogRect,visitor.rect);
+    gl.uniform1f(frogBlurAmount,visitor.blurAmount||0);
+    gl.uniform1f(pixelRatio,canvas.width/width);
     recoverFog(ms);
     if(fogDirty){gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,fogTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,fog);fogDirty=false;}
     held=rain.step(dt,held,target);drops=rain.drops;

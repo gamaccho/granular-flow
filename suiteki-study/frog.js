@@ -1,53 +1,167 @@
-/* Original ventral frog drawing; toe-placement inspired by Endlein et al. (2013), Video S2. */
+/* The supplied ventral photograph is the visible skin, including every toe.
+   A textured, skinned mesh deforms that photograph; no illustrated frog shapes. */
 class FrogVisitor {
-  constructor(random=Math.random){this.random=random;this.canvas=document.createElement('canvas');this.canvas.width=this.canvas.height=256;this.c=this.canvas.getContext('2d');this.reset();}
-  reset(){this.clock=0;this.next=36+this.random()*8;this.age=-1;this.rect=[0,0,0,0];this.c.clearRect(0,0,256,256);}
-  update(dt,w,h){
-    this.clock+=dt;
-    if(this.age<0&&this.clock>=this.next){this.age=0;this.next=this.clock+36+this.random()*8;this.side=this.random()<.5?-1:1;this.baseY=.38+this.random()*.25;this.size=Math.min(190,Math.min(w,h)*.40);}
-    if(this.age<0)return false;
-    this.age+=dt;const a=this.age;
-    if(a>12){this.age=-1;this.rect=[0,0,0,0];return false;}
-    const ease=x=>{x=Math.max(0,Math.min(1,x));return x*x*(3-2*x);};
-    const enter=ease(a/1.1),leave=ease((a-10.6)/1.4);
-    const climb=Math.floor(Math.max(0,a-2)/1.2)+ease((Math.max(0,a-2)%1.2-.72)/.48);
-    const x=w*(this.side<0?.28:.72)+this.side*((1-enter)*(w*.85)+leave*w*.85)+Math.sin(climb*.5)*this.size*.12;
-    const y=h*this.baseY-climb*this.size*.047-leave*this.size*.65;
-    this.rect=[x/w,1-y/h,this.size/w,this.size/h];
-    this.draw(a,climb,leave);return true;
+  constructor(random=Math.random){
+    this.random=random;
+    this.canvas=document.createElement('canvas');this.canvas.width=this.canvas.height=512;
+    this.gl=this.canvas.getContext('webgl',{alpha:true,premultipliedAlpha:true,antialias:false,depth:false,preserveDrawingBuffer:true});
+    this.limbs=[
+      [[231,215],[239,123],[164,191],[207,84]],
+      [[215,237],[231,328],[119,344],[176,409]],
+      [[378,178],[331,117],[370,78]],
+      [[382,211],[347,272],[384,294]]
+    ];
+    this.bones=[{a:[223,213],b:[404,190],radius:43,limb:-1}];
+    this.limbs.forEach((points,limb)=>{
+      for(let j=0;j<points.length-1;j++)this.bones.push({a:points[j],b:points[j+1],radius:limb<2?(j?13:20):12,limb,j});
+      const end=points.at(-1),before=points.at(-2),dx=end[0]-before[0],dy=end[1]-before[1],length=Math.hypot(dx,dy);
+      this.bones.push({a:end,b:[end[0]+dx/length*30,end[1]+dy/length*30],radius:24,limb,j:points.length-1,foot:true});
+    });
+    this.setupMesh();this.reset();this.ready=this.loadPhoto().catch(error=>console.warn('Frog photo could not be loaded.',error));
   }
-  draw(a,climb,leave){
-    const c=this.c;c.clearRect(0,0,256,256);c.save();c.translate(128,130);c.rotate(this.side*.40+leave*this.side*.45);c.scale(1-leave*.30,1-leave*.30);
-    const ellipse=(x,y,rx,ry,color)=>{c.fillStyle=color;c.beginPath();c.ellipse(x,y,rx,ry,0,0,Math.PI*2);c.fill();};
-    const phase=Math.max(0,a-1.8)/1.2;
-    // One foot releases at a time. Other feet counter body travel and stay planted.
-    for(let i=0;i<4;i++){
-      const side=i%2?-1:1,back=i>=2;const q=phase+i*.25;const cycle=q-Math.floor(q);const swing=Math.max(0,(cycle-.72)/.28);const eased=swing*swing*(3-2*swing);
-      const lift=Math.sin(swing*Math.PI);const footX=side*(back?66:54)+side*lift*6;
-      const footY=(back?62:-56)+(cycle-eased)*15-leave*(back?-30:18);
-      const hipX=side*(back?22:18),hipY=back?28:-25,kneeX=side*(back?46:35),kneeY=back?19:-23;
-      c.lineCap='round';c.lineJoin='round';c.strokeStyle='#a6966e';c.lineWidth=back?16:8;c.beginPath();c.moveTo(hipX,hipY);c.lineTo(kneeX,kneeY);c.lineTo(footX,footY);c.stroke();
-      c.strokeStyle='#d2c59b';c.lineWidth=back?10:5;c.stroke();
-      for(let toe=0;toe<(back?5:4);toe++){
-        const angle=(back?Math.PI/2:-Math.PI/2)+(toe-(back?2:1.5))*.53;const tx=footX+Math.cos(angle)*18,ty=footY+Math.sin(angle)*(back?21:22);
-        c.strokeStyle='#cbb787';c.lineWidth=3;c.beginPath();c.moveTo(footX,footY);c.quadraticCurveTo(footX+(tx-footX)*.6,footY-7,tx,ty);c.stroke();
-        ellipse(tx,ty,3.5-lift*.8,3-lift*.6,'#dcc899');if(lift<.2){c.strokeStyle='rgba(224,225,167,.45)';c.lineWidth=.8;c.stroke();}
-      }
+  static ease(x){x=Math.max(0,Math.min(1,x));return x*x*x*(x*(x*6-15)+10);}
+  static flight(t,duration,startY=.28){
+    // Metres and seconds. z is distance outside the pane; y points down.
+    const gravity=9.81,vy=(-startY-.5*gravity*duration*duration)/duration;
+    return {y:startY+vy*t+.5*gravity*t*t,z:.85*(1-t/duration),vy:vy+gravity*t};
+  }
+  reset(){
+    this.clock=0;this.next=36+this.random()*8;this.age=-1;this.rect=[0,0,0,0];this.blurAmount=0;
+    if(this.gl){this.gl.clearColor(0,0,0,0);this.gl.clear(this.gl.COLOR_BUFFER_BIT);}
+  }
+  setupMesh(){
+    const gl=this.gl;if(!gl)return;
+    const shader=(type,source)=>{const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s;};
+    const program=gl.createProgram();
+    gl.attachShader(program,shader(gl.VERTEX_SHADER,'attribute vec2 position;attribute vec2 uv;varying vec2 tex;void main(){tex=uv;gl_Position=vec4(position,0.,1.);}'));
+    gl.attachShader(program,shader(gl.FRAGMENT_SHADER,'precision mediump float;varying vec2 tex;uniform sampler2D photo;void main(){vec4 c=texture2D(photo,tex);gl_FragColor=vec4(c.rgb*c.a,c.a);}'));
+    gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
+    gl.useProgram(program);this.program=program;
+    const cols=64,rows=48,vertices=[],uv=[],indices=[];
+    for(let y=0;y<=rows;y++)for(let x=0;x<=cols;x++){
+      const px=x*10,py=y*10;
+      const weights=this.bones.map((bone,i)=>{
+        const dx=bone.b[0]-bone.a[0],dy=bone.b[1]-bone.a[1];
+        const t=Math.max(0,Math.min(1,((px-bone.a[0])*dx+(py-bone.a[1])*dy)/(dx*dx+dy*dy)));
+        const distance=Math.hypot(px-bone.a[0]-t*dx,py-bone.a[1]-t*dy);
+        return {i,w:Math.exp(-2.5*(distance/bone.radius)**2)};
+      }).sort((a,b)=>b.w-a.w).slice(0,3);
+      const total=weights.reduce((n,b)=>n+b.w,0);
+      if(total<1e-15){weights.length=0;weights.push({i:0,w:1});}else weights.forEach(b=>b.w/=total);
+      vertices.push({x:px,y:py,weights});uv.push(px/640,py/480);
+      if(x<cols&&y<rows){const a=y*(cols+1)+x,b=a+cols+1;indices.push(a,b,a+1,a+1,b,b+1);}
     }
-    // Irregular pear-shaped underside, with subdued olive flanks and translucent belly.
-    c.beginPath();c.moveTo(-19,-35);c.bezierCurveTo(-30,-17,-29,8,-23,29);c.bezierCurveTo(-18,49,10,52,21,31);c.bezierCurveTo(30,11,28,-18,18,-35);c.closePath();
-    const belly=c.createRadialGradient(-8,-9,2,2,3,48);belly.addColorStop(0,'#e0dfca');belly.addColorStop(.55,'#cbcbb3');belly.addColorStop(.84,'#a8b491');belly.addColorStop(1,'#70884f');c.fillStyle=belly;c.fill();
-    c.save();c.clip();
-    for(let i=0;i<460;i++){const x=Math.sin(i*19.31)*31,y=Math.cos(i*7.713)*49;const r=.35+(i%5)*.19;ellipse(x,y,r,r*.74,i%3?'rgba(76,87,61,.12)':'rgba(219,205,170,.18)');}
-    c.strokeStyle='rgba(134,98,77,.15)';c.lineWidth=.5;
-    for(let i=0;i<8;i++){const y=-15+i*6;c.beginPath();c.moveTo(-19,y);c.quadraticCurveTo(-7,y+3,-2,y+8);c.moveTo(20,y+1);c.quadraticCurveTo(8,y+4,2,y+9);c.stroke();}
-    c.restore();
-    const throat=c.createRadialGradient(-4,-33,1,0,-31,29);throat.addColorStop(0,'#dedcca');throat.addColorStop(1,'#a8b594');
-    c.beginPath();c.moveTo(-24,-35);c.bezierCurveTo(-29,-48,-18,-57,0,-58);c.bezierCurveTo(19,-57,29,-46,24,-34);c.quadraticCurveTo(0,-15,-24,-35);c.fillStyle=throat;c.fill();
-    // Eyes are mostly occluded from below; avoid front-facing cartoon pupils or a smile.
-    ellipse(-23,-47,2.5,4,'#8e9c71');ellipse(23,-47,2,3.5,'#8e9c71');
-    c.strokeStyle='rgba(76,81,58,.20)';c.lineWidth=.65;for(let i=0;i<3;i++){c.beginPath();c.moveTo(-14,-28+i*2);c.quadraticCurveTo(0,-24+i*2,14,-29+i*2);c.stroke();}
-    ellipse(0,-27,12,5+Math.sin(a*3)*.45,'rgba(207,194,163,.09)');c.restore();
+    this.vertices=vertices;this.positions=new Float32Array(vertices.length*2);this.count=indices.length;
+    this.positionBuffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.positionBuffer);gl.bufferData(gl.ARRAY_BUFFER,this.positions,gl.DYNAMIC_DRAW);
+    const position=gl.getAttribLocation(program,'position');gl.enableVertexAttribArray(position);gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
+    const uvs=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,uvs);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(uv),gl.STATIC_DRAW);
+    const tex=gl.getAttribLocation(program,'uv');gl.enableVertexAttribArray(tex);gl.vertexAttribPointer(tex,2,gl.FLOAT,false,0,0);
+    const triangles=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,triangles);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(indices),gl.STATIC_DRAW);
+    this.texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,this.texture);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.uniform1i(gl.getUniformLocation(program,'photo'),0);
+  }
+  async loadPhoto(){
+    const photo=new Image();photo.src='frog-photo.jpg?v=16';await photo.decode();
+    if(!this.gl)return;
+    const matte=document.createElement('canvas');matte.width=640;matte.height=480;
+    const c=matte.getContext('2d',{willReadFrequently:true});c.drawImage(photo,0,0);
+    const pixels=c.getImageData(0,0,640,480),data=pixels.data,n=640*480,score=new Float32Array(n);
+    // Isolate the pale/yellow/green animal from the dark neutral glass.
+    // Connected foreground rejects dust and scratches outside the animal.
+    for(let i=0;i<n;i++){
+      const j=i*4,r=data[j],g=data[j+1],b=data[j+2],hi=Math.max(r,g,b),lo=Math.min(r,g,b);
+      score[i]=Math.max(0,Math.min(1,Math.max((hi-105)/32,Math.min((hi-lo-19)/21,(hi-66)/30))));
+    }
+    const connected=new Uint8Array(n),queue=new Int32Array(n);let read=0,write=1;queue[0]=215*640+280;connected[queue[0]]=1;
+    while(read<write){const i=queue[read++],x=i%640;for(const next of [x?i-1:-1,x<639?i+1:-1,i-640,i+640])if(next>=0&&next<n&&!connected[next]&&score[next]>.18){connected[next]=1;queue[write++]=next;}}
+    // Preserve dark skin enclosed by foreground, but keep gaps between toes clear.
+    const outside=new Uint8Array(n);read=0;write=1;queue[0]=0;outside[0]=1;
+    while(read<write){const i=queue[read++],x=i%640;for(const next of [x?i-1:-1,x<639?i+1:-1,i-640,i+640])if(next>=0&&next<n&&!connected[next]&&!outside[next]){outside[next]=1;queue[write++]=next;}}
+    for(let i=0;i<n;i++){
+      if(!outside[i]){data[i*4+3]=255;continue;}
+      // A one-pixel transition retains photographic edges, without a glass rectangle.
+      let edge=0;if(i%640&&connected[i-1])edge=1;if(i%640<639&&connected[i+1])edge=1;if(connected[i-640]||connected[i+640])edge=1;
+      data[i*4+3]=edge?Math.round(score[i]*180):0;
+    }
+    c.putImageData(pixels,0,0);this.matte=matte;
+    const gl=this.gl;gl.bindTexture(gl.TEXTURE_2D,this.texture);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,matte);this.loaded=true;
+  }
+  begin(w,h){
+    const r=this.random;this.age=0;this.next=this.clock+36+r()*8;
+    this.arrival=.66+r()*.10;this.baseX=w*(.34+r()*.32);this.baseY=h*(.41+r()*.18);
+    this.viewWidth=w;this.viewHeight=h;
+    this.size=Math.min(245,Math.min(w,h)*.59);this.angle=-1.12+(r()-.5)*.40;
+    this.approachX=(r()-.5)*.22;this.leaveX=(r()-.5)*.9;
+    this.steps=[
+      {t:.70,foot:3,d:.24,advance:24},{t:1.10,foot:0,d:.33,advance:23},
+      {t:2.65,foot:2,d:.27,advance:39},{t:3.04,foot:1,d:.36,advance:38},
+      {t:4.70,foot:3,d:.22,advance:62},{t:5.12,foot:0,d:.31,advance:59},
+      {t:6.20,foot:2,d:.28,advance:72},{t:6.60,foot:1,d:.37,advance:69}
+    ].map(step=>({...step,t:step.t+(r()-.5)*.13}));
+  }
+  update(dt,w,h){
+    if(!this.loaded)return false;
+    this.clock+=dt;if(this.age<0&&this.clock>=this.next)this.begin(w,h);
+    if(this.age<0)return false;
+    if(w!==this.viewWidth||h!==this.viewHeight){this.baseX*=w/this.viewWidth;this.baseY*=h/this.viewHeight;this.viewWidth=w;this.viewHeight=h;this.size=Math.min(245,Math.min(w,h)*.59);}
+    this.age+=dt;const age=this.age,land=age-this.arrival,departure=land-8.8;
+    if(departure>2.25){this.age=-1;this.rect=[0,0,0,0];return false;}
+    const ease=FrogVisitor.ease;
+    const bodyAdvance=12*ease((land-1.48)/.50)+19*ease((land-3.50)/.58)+20*ease((land-5.56)/.54)+11*ease((land-7.06)/.60);
+    let x=0,y=0,z=0,scale=1,impact=0;
+    if(land<0){
+      const flight=FrogVisitor.flight(age,this.arrival);y=flight.y;z=flight.z;x=this.approachX*(1-age/this.arrival);
+    }else if(departure>0){
+      z=departure*2.8;y=-2.65*departure+.5*9.81*departure*departure;x=this.leaveX*departure;
+    }else{
+      impact=Math.sin(land*27)*Math.exp(-land*13);scale=1-impact*.045;
+    }
+    const projection=.56/(.56+z),unit=Math.min(w,h)/.64,travel=bodyAdvance*.82/512*this.size;
+    this.blurAmount=Math.min(1,z/.75);
+    this.rect=[(this.baseX+(x*unit+Math.cos(this.angle)*travel)*projection)/w,1-(this.baseY+(y*unit+Math.sin(this.angle)*travel)*projection)/h,this.size*projection*scale/w,this.size*projection*scale/h];
+    this.state={age,land,departure,z,projection,bodyAdvance,impact};
+    this.draw();return true;
+  }
+  solveChain(rest,target){
+    const p=rest.map(v=>v.slice()),lengths=rest.slice(1).map((v,i)=>Math.hypot(v[0]-rest[i][0],v[1]-rest[i][1]));
+    for(let pass=0;pass<5;pass++){
+      p[p.length-1]=target.slice();
+      for(let i=p.length-2;i>=0;i--){const dx=p[i][0]-p[i+1][0],dy=p[i][1]-p[i+1][1],s=lengths[i]/Math.max(.001,Math.hypot(dx,dy));p[i]=[p[i+1][0]+dx*s,p[i+1][1]+dy*s];}
+      p[0]=rest[0].slice();
+      for(let i=1;i<p.length;i++){const dx=p[i][0]-p[i-1][0],dy=p[i][1]-p[i-1][1],s=lengths[i-1]/Math.max(.001,Math.hypot(dx,dy));p[i]=[p[i-1][0]+dx*s,p[i-1][1]+dy*s];}
+    }
+    return p;
+  }
+  draw(){
+    const {age,land,departure,bodyAdvance,impact}=this.state,ease=FrogVisitor.ease;
+    const chains=this.limbs.map((rest,foot)=>{
+      const end=rest.at(-1),root=rest[0];let advance=0,lift=0;
+      for(const step of this.steps)if(step.foot===foot&&land>step.t){const p=Math.min(1,(land-step.t)/step.d);advance+=(step.advance-advance)*ease(p);if(p<1)lift=Math.sin(p*Math.PI);}
+      let dx=advance-bodyAdvance,dy=lift*(foot%2?5:-5),tuck=0;
+      if(land<0){const t=age/this.arrival;tuck=foot<2?.42*(1-ease(t/.13))-.14*Math.sin(Math.PI*t)*(1-ease((t-.64)/.26)):.32*(1-ease((t-.42)/.40));}
+      else if(departure>0){tuck=foot<2?.18-.42*ease(departure/.10)+.48*ease((departure-.22)/.45):.18+.02*ease(departure/.45);}
+      else{tuck=.18*ease((land-8.20)/.60);dy+=impact*(foot%2?9:-9);}
+      dx+=(root[0]-end[0])*tuck;dy+=(root[1]-end[1])*tuck;
+      return this.solveChain(rest,[end[0]+dx,end[1]+dy]);
+    });
+    const transforms=this.bones.map(bone=>{
+      if(bone.limb<0)return {a:bone.a,cos:1,sin:0};
+      const chain=chains[bone.limb];let a=chain[bone.j],b=chain[bone.j+1];
+      if(bone.foot){const before=chain[chain.length-2],end=chain.at(-1),dx=end[0]-before[0],dy=end[1]-before[1],length=Math.hypot(dx,dy);a=end;b=[a[0]+dx/length*30,a[1]+dy/length*30];}
+      const angle=Math.atan2(b[1]-a[1],b[0]-a[0])-Math.atan2(bone.b[1]-bone.a[1],bone.b[0]-bone.a[0]);
+      return {a,cos:Math.cos(angle),sin:Math.sin(angle)};
+    });
+    const angle=this.angle+(land<0?.12*Math.sin(age/this.arrival*Math.PI):departure>0?-.24*Math.min(1,departure):impact*.025);
+    const cos=Math.cos(angle),sin=Math.sin(angle);
+    this.vertices.forEach((vertex,i)=>{
+      let x=0,y=0;for(const influence of vertex.weights){const bone=this.bones[influence.i],tr=transforms[influence.i],dx=vertex.x-bone.a[0],dy=vertex.y-bone.a[1];x+=(tr.a[0]+dx*tr.cos-dy*tr.sin)*influence.w;y+=(tr.a[1]+dx*tr.sin+dy*tr.cos)*influence.w;}
+      x-=285;y-=238;
+      this.positions[i*2]=(x*cos-y*sin)*.82/256;this.positions[i*2+1]=-(x*sin+y*cos)*.82/256;
+    });
+    const gl=this.gl;gl.clear(gl.COLOR_BUFFER_BIT);gl.bindBuffer(gl.ARRAY_BUFFER,this.positionBuffer);gl.bufferSubData(gl.ARRAY_BUFFER,0,this.positions);gl.drawElements(gl.TRIANGLES,this.count,gl.UNSIGNED_SHORT,0);
   }
 }
 if(typeof module!=='undefined')module.exports=FrogVisitor;
