@@ -8,6 +8,7 @@ uniform vec3 u_to_viewer;
 uniform float u_time;
 uniform float u_palette_blend;
 uniform float u_density;
+uniform vec4 u_idle_light;
 in vec3 position;
 in vec2 a_uv;
 out vec3 v_color;
@@ -59,5 +60,6 @@ void main() {
   v_color = mix(v_color * vec3(0.65, 0.78, 1.0), v_color, front);
   float boundaryFade = 1.0 - smoothstep(2.15, 2.8, length(head));
   v_alpha = (0.020 + seed * 0.020) * u_density / (1.0 + speed * 1.4) * depthLight * boundaryFade;
-  v_alpha *= mix(1.0, 2.15, rainbow);
+  float patches = 1.0 + u_idle_light.y * 0.55 * sin(atan(head.z, head.x) * 3.0 + head.y * 2.0 + u_idle_light.z);
+  v_alpha *= mix(1.0, 2.15, rainbow) * u_idle_light.x * patches;
 }

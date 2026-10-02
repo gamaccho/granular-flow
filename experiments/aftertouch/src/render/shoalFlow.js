@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { IdleVariation } from './idleVariation.js';
 import { ParticleFlow } from './particleFlow.js';
 import quadVertex from '../shaders/simulation.vert.glsl?raw';
 import simulationFragment from '../shaders/shoal-simulation.frag.glsl?raw';
@@ -14,6 +15,7 @@ const material = (vertexShader, fragmentShader, uniforms, options = {}) => new T
 export class ShoalFlow extends ParticleFlow {
   constructor(canvas) {
     super(canvas);
+    this.idleVariation = new IdleVariation();
     this.spatialCamera = new THREE.PerspectiveCamera(38, 1, 0.1, 30);
     this.spatialCamera.zoom = 0.88; // 10% larger than the previous 0.8 framing.
     // Reduce both rendered instances and simulation texels. Keep the original
@@ -35,6 +37,8 @@ export class ShoalFlow extends ParticleFlow {
       u_camera_position: { value: new THREE.Vector3() }, u_camera_right: { value: new THREE.Vector3() },
       u_camera_up: { value: new THREE.Vector3() }, u_to_viewer: { value: new THREE.Vector3() },
       u_projection_scale: { value: 1 },
+      u_idle_shape: { value: new THREE.Vector4(1, 0, 0, 0) },
+      u_idle_light: { value: new THREE.Vector4(1, 0, 0, 0) },
     });
     this.states.forEach((target) => target.dispose());
     this.states = [0, 1].map(() => new THREE.WebGLRenderTarget(this.grid, this.grid, {
@@ -54,6 +58,9 @@ export class ShoalFlow extends ParticleFlow {
 
   reset() {
     if (!this.spatialCamera) return super.reset();
+    this.idleVariation.reset();
+    this.uniforms.u_idle_shape.value.set(1, 0, 0, 0);
+    this.uniforms.u_idle_light.value.set(1, 0, 0, 0);
     const texels = this.grid * this.grid;
     const positions = new Float32Array(texels * 4);
     const velocities = new Float32Array(texels * 4);
@@ -122,6 +129,9 @@ export class ShoalFlow extends ParticleFlow {
     this.time += dt;
     this.updateCamera();
     const u = this.uniforms;
+    this.idleVariation.update(dt, pointer.inside || pointer.active > 0.05);
+    u.u_idle_shape.value.fromArray(this.idleVariation.shape);
+    u.u_idle_light.value.fromArray(this.idleVariation.light);
     u.u_time.value = this.time;
     u.u_dt.value = dt;
     u.u_turbulence.value = values.turbulence;

@@ -17,6 +17,8 @@ uniform vec2 u_pointer;
 uniform vec2 u_pointer_previous;
 uniform vec2 u_pointer_velocity;
 uniform float u_active;
+uniform vec4 u_idle_shape;
+uniform vec4 u_idle_light;
 in vec2 v_uv;
 layout(location = 0) out vec4 out_position;
 layout(location = 1) out vec4 out_velocity;
@@ -27,13 +29,17 @@ void main() {
   vec3 velocity = motion.xyz;
   float seed = hash(v_uv);
   float heightSeed = hash(v_uv + 7.31);
-  float preferredY = (heightSeed * 2.0 - 1.0) * 0.98;
+  float groupedHeight = heightSeed + u_idle_light.w * sin(heightSeed * 6.2831853 + u_idle_light.z) / 6.2831853;
+  float preferredY = (groupedHeight * 2.0 - 1.0) * 0.98;
   float radius = max(length(p.xz), 0.001);
   vec3 radial = vec3(p.x / radius, 0.0, p.z / radius);
   vec3 tangent = vec3(-radial.z, 0.0, radial.x);
   float angle = atan(p.z, p.x);
   float level = clamp((p.y + 1.0) * 0.5, 0.0, 1.0);
   float band = 0.30 + level * 0.37 + seed * 0.12;
+  band += u_idle_shape.y * (level - 0.5);
+  float waist = (p.y - u_idle_shape.w) / 0.42;
+  band *= u_idle_shape.x * (1.0 - u_idle_shape.z * exp(-waist * waist));
   band += 0.045 * sin(angle * 2.0 - p.y * 2.6 + u_time * 0.18);
   float rainbowTarget = clamp(u_palette_blend - 2.0, 0.0, 1.0);
   // Half the previous added spread; ordinary vortex motion remains unchanged.
@@ -45,7 +51,8 @@ void main() {
   float rainbow = mix(motion.w, rainbowTarget, 1.0 - exp(-u_dt * colorRate));
   // Loosen the envelope into uneven drifting groups, retaining a turning core.
   band += playful * (0.12 + seed * 0.28 + 0.12 * sin(angle * 3.0 + p.y * 2.4 + u_time * 0.35));
-  vec3 field = tangent * (0.24 + seed * 0.14 + u_turbulence * 0.035);
+  float grouping = 1.0 - u_idle_light.y * 0.45 * sin(angle * 3.0 + p.y * 2.0 + u_idle_light.z);
+  vec3 field = tangent * (0.24 + seed * 0.14 + u_turbulence * 0.035) * grouping;
   field += radial * (band - radius) * 0.85;
   field.y = (preferredY * (1.0 + playful * 0.22) - p.y) * 0.42 + (0.13 + playful * 0.18) * sin(angle - p.y * 2.0 + seed * 6.2831853);
   field += vec3(sin(p.z * 4.0 + u_time * 0.27), sin(p.x * 3.0 - u_time * 0.2), cos(p.y * 4.0 + u_time * 0.23)) * (0.012 + u_turbulence * 0.013);
