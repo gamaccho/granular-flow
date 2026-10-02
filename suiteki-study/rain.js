@@ -48,7 +48,7 @@ class RainGlass {
     }
     for(const d of this.drops){
       if(d.merge)continue;
-      if(d!==held&&!d.falling&&d.r>=this.fallRadius){d.falling=true;d.vy=-.04;this.splash(d.x,d.y);}
+      if(d!==held&&!d.falling&&d.r>=this.fallRadius){d.falling=true;d.vy=-.04;}
       if(d===held){d.vx+=(target.x-d.x)*dt*110;d.vy+=(target.y-d.y)*dt*110;d.vx*=Math.exp(-dt*16);d.vy*=Math.exp(-dt*16);}
       else if(d.falling){d.vy-=dt*(.8+d.r*5);d.vy*=Math.exp(-dt*.65);d.vx*=Math.exp(-dt*5);}
       else {d.vx*=Math.exp(-dt*14);d.vy*=Math.exp(-dt*14);}

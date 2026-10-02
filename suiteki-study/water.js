@@ -84,16 +84,25 @@ void main(){
   const fogTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,fogTexture);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  gl.uniform1i(gl.getUniformLocation(program,'mist'),1);let fogDirty=true,previousWipe=null;
-  function resetFog(){fogCtx.fillStyle='#fff';fogCtx.fillRect(0,0,256,256);fogDirty=true;}
+  gl.uniform1i(gl.getUniformLocation(program,'mist'),1);let fogDirty=true,previousWipe=null,fogRecovering=false,fogUpdated=performance.now();
+  const fogLevels=new Float32Array(256*256);
+  function resetFog(){fogCtx.fillStyle='#fff';fogCtx.fillRect(0,0,256,256);fogLevels.fill(255);fogRecovering=false;fogUpdated=performance.now();fogDirty=true;}
+  function recoverFog(now,force=false){
+    const elapsed=(now-fogUpdated)/1000;if(!force&&elapsed<.1)return;fogUpdated=now;
+    if(!fogRecovering)return;const pixels=fogCtx.getImageData(0,0,256,256);fogRecovering=false;
+    for(let i=0;i<fogLevels.length;i++){const value=Math.min(255,fogLevels[i]+elapsed*255/30);fogLevels[i]=value;if(value<255)fogRecovering=true;const j=i*4;pixels.data[j]=pixels.data[j+1]=pixels.data[j+2]=Math.round(value);}
+    fogCtx.putImageData(pixels,0,0);fogDirty=true;
+  }
   function wipe(e){
+    recoverFog(performance.now(),true);
     const x=e.clientX/width*256,y=e.clientY/height*256;
     const rx=27/width*256,ry=27/height*256;
     const start=previousWipe||{x,y};const steps=Math.max(1,Math.ceil(Math.hypot((x-start.x)/rx,(y-start.y)/ry)*3));
     for(let i=0;i<=steps;i++){const k=i/steps;fogCtx.save();fogCtx.translate(start.x+(x-start.x)*k,start.y+(y-start.y)*k);fogCtx.scale(rx,ry);const g=fogCtx.createRadialGradient(0,0,.55,0,0,1);g.addColorStop(0,'rgba(0,0,0,1)');g.addColorStop(1,'rgba(0,0,0,0)');fogCtx.fillStyle=g;fogCtx.fillRect(-1,-1,2,2);fogCtx.restore();}
-    previousWipe={x,y};fogDirty=true;
+    const pixels=fogCtx.getImageData(0,0,256,256).data;for(let i=0;i<fogLevels.length;i++)fogLevels[i]=pixels[i*4];
+    fogRecovering=true;previousWipe={x,y};fogDirty=true;
   }
-  const packed=new Float32Array(160);const rain=new RainGlass();let drops=rain.drops,width=1,height=1,unit=1,held=null,pointerId=null,target={x:0,y:0},last=0,night=1,nightTarget=1;
+  const packed=new Float32Array(160);const rain=new RainGlass();let drops=rain.drops,width=1,height=1,unit=1,held=null,pointerId=null,target={x:0,y:0},last=0,night=0,nightTarget=0;
   const spray=document.querySelector('#spray');const ctx=spray.getContext('2d');
   function resize(){width=innerWidth;height=innerHeight;unit=Math.min(width,height);const scale=Math.min(devicePixelRatio||1,1.65,Math.sqrt(1800000/(width*height)));canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);gl.viewport(0,0,canvas.width,canvas.height);spray.width=canvas.width;spray.height=canvas.height;rain.bounds(width/unit,height/unit);}
   function reset(){held=null;rain.reset();drops=rain.drops;resetFog();}
@@ -110,6 +119,7 @@ void main(){
     const dt=Math.min((ms-last)/1000,.035)||.016;last=ms;const t=ms*.001;
     gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,streetTexture);
     if(streetScene.update(t)){gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,streetScene.texture);gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,blurTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,streetScene.blur);}
+    recoverFog(ms);
     if(fogDirty){gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,fogTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,fog);fogDirty=false;}
     held=rain.step(dt,held,target);drops=rain.drops;
     ctx.clearRect(0,0,spray.width,spray.height);
