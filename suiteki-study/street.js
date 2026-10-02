@@ -18,7 +18,7 @@ class StreetScene {
       const i=(y*768+x)*4,r=d[i],g=d[i+1],b=d[i+2];
       const sky=x>=350&&x<=592&&y<199&&r>=18&&r<=34&&g>=31&&g<=51&&b>=42&&b<=65&&b-r>18&&g-r>10;
       const spread=Math.max(0,1-Math.pow((x-470)/150,2))*(.65+.35*(1-y/220));
-      d[i]=155;d[i+1]=191;d[i+2]=229;d[i+3]=sky?Math.round(255*spread):0;
+      d[i]=130;d[i+1]=185;d[i+2]=255;d[i+3]=sky?Math.round(255*spread):0;
     }
     c.putImageData(pixels,0,0);this.skyGlow=layer;
   }
@@ -29,18 +29,18 @@ class StreetScene {
       const count=2+Math.floor(Math.random()*3);let start=t;
       this.thunderPulses=[];
       for(let i=0;i<count;i++){
-        const duration=.12+Math.random()*.14;
-        this.thunderPulses.push({start,duration,strength:.055+Math.random()*.065});
-        start+=duration+.05+Math.random()*.12;
+        const duration=.08+Math.random()*.06;
+        this.thunderPulses.push({start,duration,strength:.10+Math.random()*.09});
+        start+=duration+.035+Math.random()*.055;
       }
     }
     let glow=0;
     for(const p of this.thunderPulses){
       const age=t-p.start;
       if(age>=0&&age<p.duration){
-        // A brief soft rise followed by a longer cloud-light decay.
+        // Fast cloud-light attack and sharp decay; still confined to the distant sky.
         const u=age/p.duration;
-        glow=Math.max(glow,p.strength*(u<.2?Math.sin(u/.2*Math.PI/2):Math.pow(1-(u-.2)/.8,1.6)));
+        glow=Math.max(glow,p.strength*(u<.08?u/.08:Math.pow(1-(u-.08)/.92,2.2)));
       }
     }
     if(glow>0&&this.skyGlow){const c=this.ctx;c.save();c.globalAlpha=glow;c.globalCompositeOperation='screen';c.drawImage(this.skyGlow,0,0);c.restore();}
@@ -147,7 +147,8 @@ class StreetScene {
     }
   }
   update(t){
-    if(this.last>=0&&t-this.last<1/24)return false;
+    const cadence=this.thunderPulses.length?1/60:1/24;
+    if(this.last>=0&&t-this.last<cadence)return false;
     const dt=this.last<0?0:Math.min(t-this.last,.1);this.last=t;const c=this.ctx;
     c.fillStyle='#14212a';c.fillRect(0,0,768,768);if(this.ready)c.drawImage(this.image,0,0,768,768);
     this.drawThunder(t);
