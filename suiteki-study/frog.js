@@ -33,8 +33,10 @@ class FrogVisitor {
     const gl=this.gl;if(!gl)return;
     const shader=(type,source)=>{const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s;};
     const program=gl.createProgram();
-    gl.attachShader(program,shader(gl.VERTEX_SHADER,'attribute vec2 position;attribute vec2 uv;varying vec2 tex;void main(){tex=uv;gl_Position=vec4(position,0.,1.);}'));
-    gl.attachShader(program,shader(gl.FRAGMENT_SHADER,'precision mediump float;varying vec2 tex;uniform sampler2D photo;void main(){vec4 c=texture2D(photo,tex);gl_FragColor=vec4(c.rgb*c.a,c.a);}'));
+    gl.attachShader(program,shader(gl.VERTEX_SHADER,'attribute vec2 position;attribute vec2 uv;varying vec2 tex;varying vec2 pane;void main(){tex=uv;pane=position;gl_Position=vec4(position,0.,1.);}'));
+    // Photograph folds/occlusion follow the anatomy. Ambient illumination is
+    // evaluated AFTER mirroring, so the street light remains above camera-left.
+    gl.attachShader(program,shader(gl.FRAGMENT_SHADER,'precision mediump float;varying vec2 tex;varying vec2 pane;uniform sampler2D photo;void main(){vec4 c=texture2D(photo,tex);float light=.96+.065*pane.y-.045*pane.x;gl_FragColor=vec4(c.rgb*light*c.a,c.a);}'));
     gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
     gl.useProgram(program);this.program=program;
     const cols=64,rows=48,vertices=[],uv=[],indices=[];
@@ -94,7 +96,8 @@ class FrogVisitor {
     this.arrival=.66+r()*.10;this.baseX=w*(.34+r()*.32);this.baseY=h*(.41+r()*.18);
     this.viewWidth=w;this.viewHeight=h;
     this.size=Math.min(245,Math.min(w,h)*.59);this.angle=-1.12+(r()-.5)*.40;
-    this.approachX=(r()-.5)*.22;this.leaveX=(r()-.5)*.9;
+    this.approachX=(r()-.5)*.22;this.mirror=r()<.5?-1:1;
+    this.exitHeading=1.35+r()*.35;
     this.steps=[
       {t:.70,foot:3,d:.24,advance:24},{t:1.10,foot:0,d:.33,advance:23},
       {t:2.65,foot:2,d:.27,advance:39},{t:3.04,foot:1,d:.36,advance:38},
@@ -107,7 +110,7 @@ class FrogVisitor {
     this.clock+=dt;if(this.age<0&&this.clock>=this.next)this.begin(w,h);
     if(this.age<0)return false;
     if(w!==this.viewWidth||h!==this.viewHeight){this.baseX*=w/this.viewWidth;this.baseY*=h/this.viewHeight;this.viewWidth=w;this.viewHeight=h;this.size=Math.min(245,Math.min(w,h)*.59);}
-    this.age+=dt;const age=this.age,land=age-this.arrival,departure=land-8.8;
+    this.age+=dt;const age=this.age,land=age-this.arrival,departure=land-9.55;
     if(departure>2.25){this.age=-1;this.rect=[0,0,0,0];return false;}
     const ease=FrogVisitor.ease;
     const bodyAdvance=12*ease((land-1.48)/.50)+19*ease((land-3.50)/.58)+20*ease((land-5.56)/.54)+11*ease((land-7.06)/.60);
@@ -115,13 +118,16 @@ class FrogVisitor {
     if(land<0){
       const flight=FrogVisitor.flight(age,this.arrival);y=flight.y;z=flight.z;x=this.approachX*(1-age/this.arrival);
     }else if(departure>0){
-      z=departure*2.8;y=-2.65*departure+.5*9.81*departure*departure;x=this.leaveX*departure;
+      // A deliberate downward kick, then gravity. No upward return arc and no
+      // reversal through the approach path. Only a small retreat from the glass.
+      z=departure*.38;y=1.25*departure+.5*9.81*departure*departure;
+      x=this.mirror*Math.cos(this.exitHeading)*1.25*departure;
     }else{
       impact=Math.sin(land*27)*Math.exp(-land*13);scale=1-impact*.045;
     }
     const projection=.56/(.56+z),unit=Math.min(w,h)/.64,travel=bodyAdvance*.82/512*this.size;
     this.blurAmount=Math.min(1,z/.75);
-    this.rect=[(this.baseX+(x*unit+Math.cos(this.angle)*travel)*projection)/w,1-(this.baseY+(y*unit+Math.sin(this.angle)*travel)*projection)/h,this.size*projection*scale/w,this.size*projection*scale/h];
+    this.rect=[(this.baseX+(x*unit+this.mirror*Math.cos(this.angle)*travel)*projection)/w,1-(this.baseY+(y*unit+Math.sin(this.angle)*travel)*projection)/h,this.size*projection*scale/w,this.size*projection*scale/h];
     this.state={age,land,departure,z,projection,bodyAdvance,impact};
     this.draw();return true;
   }
@@ -137,13 +143,29 @@ class FrogVisitor {
   }
   draw(){
     const {age,land,departure,bodyAdvance,impact}=this.state,ease=FrogVisitor.ease;
+    const turnAt=t=>(this.exitHeading-this.angle)*ease((t-7.72)/1.25);
+    const turn=turnAt(land);
     const chains=this.limbs.map((rest,foot)=>{
       const end=rest.at(-1),root=rest[0];let advance=0,lift=0;
       for(const step of this.steps)if(step.foot===foot&&land>step.t){const p=Math.min(1,(land-step.t)/step.d);advance+=(step.advance-advance)*ease(p);if(p<1)lift=Math.sin(p*Math.PI);}
       let dx=advance-bodyAdvance,dy=lift*(foot%2?5:-5),tuck=0;
+      if(land>7.72){
+        // Eight staggered replantings let the body turn while each supporting
+        // foot stays at its last angle on the pane until that foot releases.
+        let planted=0;
+        for(const start of [[7.82,8.52],[8.02,8.72],[7.92,8.62],[7.72,8.42]][foot]){
+          if(land>start){const p=Math.min(1,(land-start)/.22);planted+=(turnAt(start+.22)-planted)*ease(p);if(p<1)lift=Math.sin(p*Math.PI);}
+        }
+        // A foot releases before twisting its leg beyond the available reach.
+        // Limit torsion of the photographic skin at the shoulder/hip joints.
+        const a=Math.max(-.16,Math.min(.16,planted-turn)),px=end[0]+dx-285,py=end[1]+dy-238;
+        dx=285+px*Math.cos(a)-py*Math.sin(a)-end[0];
+        dy=238+px*Math.sin(a)+py*Math.cos(a)-end[1];
+        dx+=(root[0]-end[0])*.025*lift;dy+=(root[1]-end[1])*.025*lift;
+      }
       if(land<0){const t=age/this.arrival;tuck=foot<2?.42*(1-ease(t/.13))-.14*Math.sin(Math.PI*t)*(1-ease((t-.64)/.26)):.32*(1-ease((t-.42)/.40));}
       else if(departure>0){tuck=foot<2?.18-.42*ease(departure/.10)+.48*ease((departure-.22)/.45):.18+.02*ease(departure/.45);}
-      else{tuck=.18*ease((land-8.20)/.60);dy+=impact*(foot%2?9:-9);}
+      else{tuck=.18*ease((land-9.05)/.50);dy+=impact*(foot%2?9:-9);}
       dx+=(root[0]-end[0])*tuck;dy+=(root[1]-end[1])*tuck;
       return this.solveChain(rest,[end[0]+dx,end[1]+dy]);
     });
@@ -154,12 +176,12 @@ class FrogVisitor {
       const angle=Math.atan2(b[1]-a[1],b[0]-a[0])-Math.atan2(bone.b[1]-bone.a[1],bone.b[0]-bone.a[0]);
       return {a,cos:Math.cos(angle),sin:Math.sin(angle)};
     });
-    const angle=this.angle+(land<0?.12*Math.sin(age/this.arrival*Math.PI):departure>0?-.24*Math.min(1,departure):impact*.025);
+    const angle=this.angle+turn+(land<0?.12*Math.sin(age/this.arrival*Math.PI):impact*.025);
     const cos=Math.cos(angle),sin=Math.sin(angle);
     this.vertices.forEach((vertex,i)=>{
       let x=0,y=0;for(const influence of vertex.weights){const bone=this.bones[influence.i],tr=transforms[influence.i],dx=vertex.x-bone.a[0],dy=vertex.y-bone.a[1];x+=(tr.a[0]+dx*tr.cos-dy*tr.sin)*influence.w;y+=(tr.a[1]+dx*tr.sin+dy*tr.cos)*influence.w;}
       x-=285;y-=238;
-      this.positions[i*2]=(x*cos-y*sin)*.82/256;this.positions[i*2+1]=-(x*sin+y*cos)*.82/256;
+      this.positions[i*2]=this.mirror*(x*cos-y*sin)*.82/256;this.positions[i*2+1]=-(x*sin+y*cos)*.82/256;
     });
     const gl=this.gl;gl.clear(gl.COLOR_BUFFER_BIT);gl.bindBuffer(gl.ARRAY_BUFFER,this.positionBuffer);gl.bufferSubData(gl.ARRAY_BUFFER,0,this.positions);gl.drawElements(gl.TRIANGLES,this.count,gl.UNSIGNED_SHORT,0);
   }
