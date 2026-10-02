@@ -41,11 +41,11 @@ class StreetScene {
   }
   car(){
     const dir=Math.random()<.5?-1:1;
-    return {x:dir>0?-160:928,dir,speed:213.75+Math.random()*33.75,y:698+Math.random()*20,
+    return {x:dir>0?-160:928,dir,speed:213.75+Math.random()*33.75,y:716+Math.random()*18,
       style:Math.floor(Math.random()*3),color:['#763e35','#59332f','#365b59','#39485e','#646053'][Math.floor(Math.random()*5)]};
   }
   drawCar(v,t){
-    const c=this.ctx;c.save();c.translate(v.x,v.y);c.scale(v.dir,1);
+    const c=this.ctx;c.save();c.translate(v.x,v.y);const perspective=v.style===2?1.72:1.52;c.scale(v.dir*perspective,perspective);
     c.fillStyle='#080d13';c.globalAlpha=.5;c.beginPath();c.ellipse(0,1,66,5,0,0,7);c.fill();c.globalAlpha=1;
     c.fillStyle=v.color;c.beginPath();c.moveTo(-64,-10);c.lineTo(-62,-28);
     if(v.style===0){c.lineTo(-34,-31);c.quadraticCurveTo(-24,-55,6,-52);c.quadraticCurveTo(23,-50,32,-30);}
