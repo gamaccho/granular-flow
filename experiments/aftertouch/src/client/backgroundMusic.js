@@ -18,7 +18,10 @@ export class BackgroundMusic {
     try {
       const Audio = window.AudioContext || window.webkitAudioContext;
       if (!Audio) throw new Error('Web Audio unavailable');
-      this.context = new Audio({ sampleRate: 32000 });
+      // Use the device output rate. Forcing 32 kHz can conflict with iOS
+      // audio-route changes when screen recording starts. decodeAudioData
+      // resamples the 32 kHz asset to the context rate automatically.
+      this.context = new Audio();
       this.gain = this.context.createGain();
       this.gain.gain.value = 0.8;
       this.gain.connect(this.context.destination);

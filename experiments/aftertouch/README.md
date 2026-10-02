@@ -209,5 +209,7 @@ clean 表示にも同じボタンを表示します。001 は従来どおり無�
 `public/audio/deep-sea-loop.mp3` は元曲の冒頭・末尾の無音を除き、末尾と冒頭を
 6 秒間クロスフェードしたループ用音源です。Web Audio の AudioBufferSourceNode.loop
 でサンプル単位に繰り返すため、タイマー遅延や次の MP3 の読み込み待ちはありません。
-ブラウザでの処理を減らすため音源は 32 kHz / stereo / 160 kbps に準備済みです。
+配信音源は 32 kHz / stereo / 160 kbps に準備済みです。再生の AudioContext は
+サンプルレートを指定せず端末の出力設定に従い、decodeAudioData で合わせます。
+iPhone の画面収録時に音声経路が変わる場合との互換性を優先します。
 再生成: `python3 scripts/prepare-bgm.py /path/to/深海旋回.mp3` (ffmpeg が必要)。

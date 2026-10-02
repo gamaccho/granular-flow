@@ -9,7 +9,10 @@ function setup(t, response) {
   let starts = 0;
   let startedInGesture = false;
   class Audio {
-    constructor() { this.state = 'suspended'; this.sampleRate = 32000; this.currentTime = 0; }
+    constructor(...options) {
+      assert.equal(options.length, 0, 'Playback must use the device output rate');
+      this.state = 'suspended'; this.sampleRate = 48000; this.currentTime = 0;
+    }
     createGain() { return { gain: { value: 0, setTargetAtTime() {} }, connect() {} }; }
     createBuffer() { return { duration: 0.128 }; }
     createBufferSource() { return { connect() {}, disconnect() {}, stop() {}, start() { starts++; if (gesture) startedInGesture = true; } }; }
