@@ -109,7 +109,11 @@ class FrogVisitor {
   }
   begin(w,h){
     const r=this.random;this.age=0;this.next=this.clock+36+r()*8;
-    this.arrival=.66+r()*.10;this.baseX=w*(.34+r()*.32);this.baseY=h*(.41+r()*.18);
+    this.arrival=.66+r()*.10;
+    // Spread landing centers across the pane, keeping the body clear of its edges.
+    const margin=Math.min(245,Math.min(w,h)*.59)*.85*.55;
+    this.baseX=margin+r()*Math.max(0,w-2*margin);
+    this.baseY=margin+r()*Math.max(0,h-2*margin);
     this.viewWidth=w;this.viewHeight=h;
     this.size=Math.min(245,Math.min(w,h)*.59)*.85;this.angle=-1.12+(r()-.5)*.40;
     this.approachX=(r()-.5)*.22;this.mirror=r()<.5?-1:1;
