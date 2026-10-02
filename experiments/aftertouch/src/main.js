@@ -1,4 +1,5 @@
 import './style.css';
+import { BackgroundMusic } from './client/backgroundMusic.js';
 import { GestureTracker } from './input/gestureTracker.js';
 import { JevClient } from './client/jevClient.js';
 import { ParticleFlow } from './render/particleFlow.js';
@@ -8,6 +9,34 @@ import { MODES, classifyGesture, resolveShoalGesture, smoothValue } from '../sha
 const canvas = document.querySelector('#art');
 const spatial = new URLSearchParams(location.search).get('view') === 'shoal';
 const Flow = spatial ? ShoalFlow : ParticleFlow;
+const musicButton = document.querySelector('#music');
+const music = spatial ? new BackgroundMusic(`${import.meta.env.BASE_URL}audio/deep-sea-loop.mp3`, {
+  onChange: ({ status, playing, muted }) => {
+    musicButton.dataset.playing = String(playing);
+    musicButton.setAttribute('aria-label', playing ? 'BGMをミュート' : 'BGMを再生');
+    musicButton.setAttribute('aria-pressed', String(muted));
+    musicButton.title = status === 'error' ? 'BGMを読み込めませんでした' : status === 'loading' ? 'BGM読み込み中' : playing ? 'BGMをミュート' : 'BGMを再生';
+    musicButton.disabled = status === 'error';
+    document.querySelector('#music-icon').setAttribute('d', playing ? 'M8 5v14M16 5v14' : 'M9 18V5l10-2v13M9 8l10-2M9 18c0 2-5 3-5 0s5-2 5 0M19 16c0 2-5 3-5 0s5-2 5 0');
+  },
+}) : null;
+musicButton.hidden = !music;
+musicButton.addEventListener('click', () => {
+  if (!music) return;
+  if (!music.snapshot().playing && !music.muted) music.resume();
+  else music.toggle();
+});
+// Capture touch before decoding completes, so iPhone can unlock the context
+// even when the first gesture happens during the download.
+const unlockMusic = (event) => {
+  if (event.target.closest?.('#music')) return;
+  music?.resume();
+};
+document.addEventListener('pointerdown', unlockMusic, { capture: true, passive: true });
+document.addEventListener('touchend', unlockMusic, { capture: true, passive: true });
+document.addEventListener('keydown', unlockMusic, { capture: true });
+if (music) void music.load();
+
 const errorPanel = document.querySelector('#error');
 const connection = document.querySelector('#connection');
 const tracker = new GestureTracker();
@@ -177,6 +206,7 @@ debugPanel.hidden = !debug;
 if (debug) window.__AFTERTOUCH__ = {
   snapshot: () => ({ view: spatial ? 'shoal' : 'flow', mood, source, paused, fps: Math.round(fps), particles: flow?.count, quality: flow?.quality, frames: qualityFrames, simulationTime: flow?.time, pointer: { x: pointer.x, y: pointer.y, vx: pointer.vx, vy: pointer.vy, active: pointer.active, inside: pointer.inside }, values: { turbulence: values.turbulence, decay: values.decay, paletteBlend: values.paletteBlend, attraction: values.attraction }, metrics: tracker.snapshot() }),
   sampleMotion: () => flow?.sampleMotion(),
+  audio: () => music?.snapshot() ?? null,
 };
 
 function frame(now) {
@@ -243,7 +273,7 @@ canvas.addEventListener('webglcontextrestored', () => {
     animationId = requestAnimationFrame(frame);
   } catch (error) { showError(error.message); }
 });
-window.addEventListener('pagehide', () => { cancelAnimationFrame(animationId); client.dispose(); flow?.dispose(); });
+window.addEventListener('pagehide', () => { cancelAnimationFrame(animationId); client.dispose(); flow?.dispose(); music?.dispose(); });
 
 try {
   flow = new Flow(canvas);

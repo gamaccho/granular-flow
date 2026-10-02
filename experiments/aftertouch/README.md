@@ -196,3 +196,17 @@ npm run test:browser
 認証エラー表示を追加した後のローカル確認では、ビルドと入力・クライアント9件は成功しています。HTTPテスト14件の再実行は、作業環境のポート待受制限により実行できませんでした。このフォルダーの変更時はGitHub Actionsの **AFTERTOUCH checks** が、実キーを使わず `npm ci`、`npm test`、`npm run build` を実行します。スマートフォン実機の速度と判定品質は未検証です。
 
 2026-10-01に公開Renderプロキシを確認しました。GitHub Pagesのオリジンに対するCORS preflightは204、許可オリジンは `https://gamaccho.github.io` でした。実推論では初めの2回が期限超過でローカル判定になり、3回目に `choice: "tender"`、`confidence: 0.62`、`source: "jev"`、プロキシ処理時間253msの応答を確認しました。通信の成功は確認していますが、毎回の成功や応答時間は保証していません。
+
+
+### AFTERTOUCH 002 BGM
+
+「深海旋回」(gamaccho) を非同期で読み込み、デコード完了時に自動再生を試みます。
+ブラウザの自動再生制限がある場合は最初のタッチで AudioContext を再開します。
+読み込み・デコード・再生失敗は映像の描画を止めません。001 は従来どおり無音です。
+通常表示には BGM のミュートボタンがあり、clean 表示では他の UI と同じく非表示です。
+
+`public/audio/deep-sea-loop.mp3` は元曲の冒頭・末尾の無音を除き、末尾と冒頭を
+6 秒間クロスフェードしたループ用音源です。Web Audio の AudioBufferSourceNode.loop
+でサンプル単位に繰り返すため、タイマー遅延や次の MP3 の読み込み待ちはありません。
+ブラウザでの処理を減らすため音源は 32 kHz / stereo / 160 kbps に準備済みです。
+再生成: `python3 scripts/prepare-bgm.py /path/to/深海旋回.mp3` (ffmpeg が必要)。

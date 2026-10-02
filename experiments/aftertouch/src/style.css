@@ -44,3 +44,9 @@ noscript { position: fixed; top: 45%; width: 100%; text-align: center; }
   .controls button { width: 34px; height: 34px; }
   .connection { font-size: 8px; }
 }
+
+.controls { flex-shrink: 0; }
+@media (max-width: 640px) {
+  body:has(#music:not([hidden])) footer { flex-wrap: wrap; row-gap: 14px; }
+  body:has(#music:not([hidden])) .controls { margin-left: auto; }
+}

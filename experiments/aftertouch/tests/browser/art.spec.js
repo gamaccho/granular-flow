@@ -275,3 +275,44 @@ test('real Vite proxy and artwork run together without an API key', async ({ pag
   await page.waitForTimeout(800);
   await page.screenshot({ path: testInfo.outputPath('preview.png') });
 });
+
+
+test('spatial shoal BGM loads independently, decodes and starts a native gapless loop', async ({ page }) => {
+  test.setTimeout(90000);
+  test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
+  let releaseDownload;
+  const downloadGate = new Promise((resolve) => { releaseDownload = resolve; });
+  await page.route('**/audio/deep-sea-loop.mp3', async (route) => {
+    await downloadGate;
+    await route.continue();
+  });
+  await page.goto(new URL('?view=shoal&debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(4);
+  expect(await page.evaluate(() => window.__AFTERTOUCH__.audio().status)).toBe('loading');
+  const frames = await page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames);
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(frames + 2);
+  // Unlock while downloading, as a phone user can do before decoding is ready.
+  await page.locator('#art').tap({ position: { x: 100, y: 200 } });
+  releaseDownload();
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().status), { timeout: 30000 }).toBe('ready');
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().playing)).toBe(true);
+  const audio = await page.evaluate(() => window.__AFTERTOUCH__.audio());
+  expect(audio.loop).toBe(true);
+  expect(audio.duration).toBeGreaterThan(206);
+  expect(audio.duration).toBeLessThan(208);
+  await page.locator('#music').click();
+  expect(await page.evaluate(() => window.__AFTERTOUCH__.audio().muted)).toBe(true);
+  await page.locator('#music').click();
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.audio().playing)).toBe(true);
+  await expect(page.locator('#error')).toBeHidden();
+});
+
+
+test('spatial shoal continues rendering when BGM download fails', async ({ page }) => {
+  test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
+  await page.route('**/audio/deep-sea-loop.mp3', (route) => route.fulfill({ status: 503, body: 'Unavailable' }));
+  await page.goto(new URL('?view=shoal&debug=1', process.env.AFTERTOUCH_PREVIEW_URL).href);
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.audio().status)).toBe('error');
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(5);
+  await expect(page.locator('#error')).toBeHidden();
+});
