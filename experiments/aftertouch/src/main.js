@@ -7,7 +7,8 @@ import { ShoalFlow } from './render/shoalFlow.js';
 import { MODES, classifyGesture, resolveShoalGesture, smoothValue } from '../shared/mood.js';
 
 const canvas = document.querySelector('#art');
-const spatial = new URLSearchParams(location.search).get('view') === 'shoal';
+const spatial = /\/aftertouch002(?:\/|$)/.test(location.pathname)
+  || new URLSearchParams(location.search).get('view') === 'shoal';
 const Flow = spatial ? ShoalFlow : ParticleFlow;
 const musicButton = document.querySelector('#sound-on');
 const music = spatial ? new BackgroundMusic(`${import.meta.env.BASE_URL}audio/deep-sea-loop.mp3`, {

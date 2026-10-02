@@ -8,8 +8,10 @@
     <meta name="description" content="AFTERTOUCH — 触れる速度と軌跡から、光の流れが変わるインタラクティブ作品。" />
     <title>AFTERTOUCH 001 · Interactive matter</title>
     <script>
-      if (new URLSearchParams(location.search).get('view') === 'shoal') document.title = 'AFTERTOUCH 002 · Interactive matter';
-      if (new URLSearchParams(location.search).get('clean') === '1') document.documentElement.classList.add('clean-view');
+      const params = new URLSearchParams(location.search);
+      const edition002 = /\/aftertouch002(?:\/|$)/.test(location.pathname);
+      if (edition002 || params.get('view') === 'shoal') document.title = 'AFTERTOUCH 002 · Interactive matter';
+      if (params.get('clean') === '1' || (edition002 && params.get('clean') !== '0')) document.documentElement.classList.add('clean-view');
     </script>
     <style>
       .clean-view .overlay, .clean-view #debug { display: none !important; }

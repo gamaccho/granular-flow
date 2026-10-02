@@ -6,9 +6,9 @@
 
 ## GitHub Pagesの公開テスト
 
-SNS共有・画面収録用の [作品だけの表示](https://gamaccho.github.io/granular-flow/aftertouch001/?view=shoal&clean=1) は `clean=1` を指定します。タイトル、説明、判定、接続表示、操作ボタン、デバッグ表示、マウスカーソルを隠し、タッチ反応は通常版と共通です。PCのSpace（一時停止）、R（リセット）、F（全画面）は利用できます。URLから `clean=1` を外すと通常表示へ戻ります。
+SNS共有・画面収録用の [作品だけの表示](https://gamaccho.github.io/granular-flow/aftertouch002/) は正式URL `aftertouch002/` で開けます。タイトル、説明、判定、接続表示、操作ボタン、デバッグ表示、マウスカーソルを隠し、タッチ反応は通常版と共通です。PCのSpace（一時停止）、R（リセット）、F（全画面）は利用できます。002 は `?clean=0` で通常表示へ戻ります。旧SNS共有URL `aftertouch001/?view=shoal&clean=1` も互換用に維持します。
 
-立体の渦の試作は [002 / SHOAL](https://gamaccho.github.io/granular-flow/aftertouch001/?view=shoal) で開けます。通常のURLは従来の平面版を保ちます。立体版はGPU上でXYZ位置・速度を更新し、空洞のある渦を下から見上げる視点で透視投影します。ゆっくり変わる視点と前後の明暗で奥行きを表現し、指の動きを画面から立体空間へ変換して毛足をなびかせます。光の繊維による表現で、魚の形や個体間の群れ行動を再現するモデルではありません。Jev接続・ローカル判定は共通です。自動検証はデスクトップとモバイル比率のChromiumで行い、iPhone実機の描画速度は未検証です。
+立体の渦の試作は [002 / SHOAL](https://gamaccho.github.io/granular-flow/aftertouch002/?clean=0) で開けます。通常のURLは従来の平面版を保ちます。立体版はGPU上でXYZ位置・速度を更新し、空洞のある渦を下から見上げる視点で透視投影します。ゆっくり変わる視点と前後の明暗で奥行きを表現し、指の動きを画面から立体空間へ変換して毛足をなびかせます。光の繊維による表現で、魚の形や個体間の群れ行動を再現するモデルではありません。Jev接続・ローカル判定は共通です。自動検証はデスクトップとモバイル比率のChromiumで行い、iPhone実機の描画速度は未検証です。
 
 公開先：**https://gamaccho.github.io/granular-flow/aftertouch001/**
 
@@ -21,7 +21,7 @@ npm run build:pages
 
 `.env.pages` に公開可能な接続先URLだけを保存しています。通信なしのプレビュー版を作る場合は `VITE_JEV_API_BASE= npm run build:pages` を実行してください。その版には「001 / PREVIEW」「公開テスト · ローカル判定（Jevなし）」と表示します。
 
-生成された `dist` の内容をリポジトリの `aftertouch001/` に配置し、mainへ反映するとPagesで配信されます。アセットは相対URLなので、リポジトリのサブディレクトリから読み込めます。`VITE_JEV_API_BASE` が空の通常の `npm run dev` / `npm run build` では、従来どおり同じオリジンのプロキシへ接続します。
+ビルド後に `python3 scripts/publish-pages.py` を実行すると、`dist` を `aftertouch001/` と `aftertouch002/` に配置します。mainへ反映するとPagesで配信されます。001 は平面版、002 はトルネード・テキスト非表示版を既定にします。アセットは相対URLなので、リポジトリのサブディレクトリから読み込めます。`VITE_JEV_API_BASE` が空の通常の `npm run dev` / `npm run build` では、従来どおり同じオリジンのプロキシへ接続します。
 
 配信したビルドのブラウザーテストは、ローカルの静的HTTPサーバーまたは公開先を指定して実行できます。
 

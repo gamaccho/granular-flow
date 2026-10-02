@@ -319,3 +319,19 @@ test('spatial shoal continues rendering when BGM download fails', async ({ page 
   await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__.snapshot().frames)).toBeGreaterThan(5);
   await expect(page.locator('#error')).toBeHidden();
 });
+
+test('spatial shoal formal 002 URL defaults to clean view and retains full UI option', async ({ page }) => {
+  test.skip(!process.env.AFTERTOUCH_PREVIEW_URL, 'Requires the built offline Pages preview.');
+  const url = new URL('../aftertouch002/?debug=1', process.env.AFTERTOUCH_PREVIEW_URL);
+  await page.goto(url.href);
+  await expect(page).toHaveTitle('AFTERTOUCH 002 · Interactive matter');
+  await expect(page.locator('html')).toHaveClass(/clean-view/);
+  await expect(page.locator('.edition')).toBeHidden();
+  await expect(page.getByRole('button', { name: '音楽をオンにする', exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__AFTERTOUCH__?.snapshot().frames)).toBeGreaterThan(5);
+  url.searchParams.set('clean', '0');
+  await page.goto(url.href);
+  await expect(page.locator('.edition span')).toHaveText('002 / SHOAL');
+  await expect(page.locator('.edition')).toBeVisible();
+  await expect(page.locator('#error')).toBeHidden();
+});
