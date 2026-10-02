@@ -1,6 +1,6 @@
 /* A small, bounded rain simulation; distances use the viewport's short side. */
 class RainGlass {
-  constructor(random=Math.random){this.random=random;this.drops=[];this.spray=[];this.merges=[];this.w=1;this.h=1;this.next=.3;this.fallRadius=.105*1.4*.8;this.rainRadius=.025;this.fallSpeed=1.1;this.events={born:0,merged:0,fallen:0,splashes:0};}
+  constructor(random=Math.random){this.random=random;this.drops=[];this.spray=[];this.merges=[];this.w=1;this.h=1;this.next=.15;this.fallRadius=.105*1.4*.8*.5;this.rainRadius=.025;this.fallSpeed=1.1;this.events={born:0,merged:0,fallen:0,splashes:0};}
   bounds(w,h){this.w=w;this.h=h;}
   stretch(d){return 1+Math.min(4.2,Math.max(0,-d.vy)*this.fallSpeed*3.0);}
   verticalScale(d,above){const tail=this.stretch(d);return above?tail:1+(tail-1)*.18;}
@@ -12,13 +12,13 @@ class RainGlass {
     });
   }
   add(x,y,r){
-    if(this.drops.length>=24||!this.canPlace(x,y,r))return null;
+    if(this.drops.length>=40||!this.canPlace(x,y,r))return null;
     const d={x,y,r,vx:0,vy:0,falling:false,exitSplash:false,merge:null};this.drops.push(d);this.events.born++;return d;
   }
   spawnRain(){
     const r=this.rainRadius;
     for(let attempt=0;attempt<32;attempt++){
-      const anchor=this.drops.length&&(this.drops.length>=18||this.random()<.65)?this.drops[Math.floor(this.random()*this.drops.length)]:null;
+      const anchor=this.drops.length&&(this.drops.length>=32||this.random()<.35)?this.drops[Math.floor(this.random()*this.drops.length)]:null;
       const angle=this.random()*Math.PI*2;
       const distance=anchor?(anchor.r+r)*(.81+this.random()*.06):0;
       const x=anchor?anchor.x+Math.cos(angle)*distance:(this.random()-.5)*this.w*.94;
@@ -27,12 +27,12 @@ class RainGlass {
       if(this.add(x,y,r))return;
     }
   }
-  reset(){this.drops.length=0;this.spray.length=0;this.merges.length=0;this.next=.3;for(let i=0;i<13;i++)this.add((this.random()-.5)*this.w*.85,(this.random()-.5)*this.h*.76,this.rainRadius);}
+  reset(){this.drops.length=0;this.spray.length=0;this.merges.length=0;this.next=.15;for(let i=0;i<13;i++)this.add((this.random()-.5)*this.w*.85,(this.random()-.5)*this.h*.76,this.rainRadius);}
   splash(x,y,exit=false){this.events.splashes++;for(let i=0;i<5;i++){if(this.spray.length>=45)this.spray.shift();this.spray.push({x,y,vx:(this.random()-.5)*.40,vy:(exit?.16:.03)+this.random()*.23,r:.0025+this.random()*.0035,life:.35+this.random()*.4});}}
   step(dt,held,target){
     this.next-=dt;
     if(this.next<=0){
-      this.next=.24+this.random()*.55;
+      this.next+=.12+this.random()*.275;
       this.spawnRain();
     }
     for(let i=this.merges.length-1;i>=0;i--){

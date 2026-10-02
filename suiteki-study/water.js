@@ -7,23 +7,37 @@
   if (!gl) { fail('このブラウザでは水滴を描画できません。WebGL対応のブラウザで開いてください。'); return; }
   const vertex = `attribute vec2 position;void main(){gl_Position=vec4(position,0.,1.);}`;
   const fragment = `precision highp float;
-uniform vec2 resolution;uniform vec4 drops[24];uniform float night;uniform float time;
+uniform vec2 resolution;uniform vec4 drops[40];uniform float night;uniform float time;
+float glow(vec2 p,vec2 center,vec2 radius){
+  vec2 q=(p-center)/radius;return exp(-dot(q,q)*1.7);
+}
 vec3 paper(vec2 p){
-  float wave=sin(p.x*3.0+p.y*1.7)*.5+.5;
-  vec3 c=mix(vec3(.90,.91,.85),vec3(.68,.79,.77),smoothstep(-.5,1.1,p.x*.5+p.y*.35+wave*.2));
-  c+=.055*exp(-pow((p.x+p.y*.65-.35)*2.,2.));
-  vec2 grid=abs(fract((p+vec2(.011*sin(p.y*2.),0.))*12.)-.5);
-  float lines=1.-smoothstep(.009,.023,min(grid.x,grid.y));
-  c-=lines*.035;
-  float band=exp(-pow((p.x-.6*p.y+.1)*8.,2.));c-=band*.06;
-  vec3 dark=mix(vec3(.045,.095,.12),vec3(.17,.30,.31),wave*.65+p.y*.09);
-  dark+=lines*.015+band*.025;
-  return mix(c,dark,night);
+  // Defocused street perspective: dark facades, warm lamps and wet-road reflections.
+  float road=1.-smoothstep(-.28,.13,p.y);
+  vec3 c=mix(vec3(.022,.035,.062),vec3(.045,.065,.085),road);
+  float avenue=exp(-pow(p.x/(.10+max(0.,.12-p.y)*.85),2.));
+  c+=vec3(.035,.045,.06)*avenue;
+  c+=vec3(.09,.025,.06)*glow(p,vec2(-.38,.15),vec2(.19,.38));
+  c+=vec3(.018,.10,.14)*glow(p,vec2(.40,.06),vec2(.14,.32));
+  for(int j=0;j<8;j++){
+    float k=float(j);float side=mod(k,2.)*2.-1.;float depth=floor(k*.5)/3.;
+    vec2 lamp=vec2(side*(.10+depth*.48),.09+depth*.32);
+    vec3 tint=mix(vec3(1.,.48,.15),vec3(.30,.66,1.),mod(k,3.)*.36);
+    float radius=.025+depth*.04;
+    c+=tint*glow(p,lamp,vec2(radius))* .78;
+    c+=tint*glow(p,lamp,vec2(radius*2.5))*.10;
+    c+=tint*glow(p,vec2(lamp.x,-.19-depth*.42),vec2(radius*.9,.14+depth*.19))*.20;
+  }
+  c+=vec3(.9,.08,.035)*glow(p,vec2(-.065,-.025),vec2(.030,.022));
+  c+=vec3(.95,.68,.35)*glow(p,vec2(.065,-.03),vec2(.032,.025));
+  c+=vec3(.1,.42,.48)*glow(p,vec2(.31,.22),vec2(.085,.045));
+  c*=1.-.22*smoothstep(.25,1.1,length(p));
+  return c*mix(1.35,1.,night);
 }
 void main(){
   vec2 p=(gl_FragCoord.xy-.5*resolution)/min(resolution.x,resolution.y);
   float f=0.;vec2 gradient=vec2(0.);float shadow=0.;
-  for(int i=0;i<24;i++){
+  for(int i=0;i<40;i++){
     vec4 d=drops[i];vec2 offset=p-d.xy;float r=d.z;
     // A rounded advancing head and a narrowing receding tail, not a stretched sphere.
     float elong=max(d.w-1.,0.);
@@ -69,17 +83,17 @@ void main(){
   const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
   const position=gl.getAttribLocation(program,'position');gl.enableVertexAttribArray(position);gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
   const uniforms=Object.fromEntries(['resolution','drops[0]','night','time'].map(k=>[k,gl.getUniformLocation(program,k)]));
-  const packed=new Float32Array(96);const rain=new RainGlass();let drops=rain.drops,width=1,height=1,unit=1,held=null,pointerId=null,target={x:0,y:0},last=0,night=0,nightTarget=0;
+  const packed=new Float32Array(160);const rain=new RainGlass();let drops=rain.drops,width=1,height=1,unit=1,held=null,pointerId=null,target={x:0,y:0},last=0,night=1,nightTarget=1;
   const spray=document.querySelector('#spray');const ctx=spray.getContext('2d');
   function resize(){width=innerWidth;height=innerHeight;unit=Math.min(width,height);const scale=Math.min(devicePixelRatio||1,1.65,Math.sqrt(1800000/(width*height)));canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);gl.viewport(0,0,canvas.width,canvas.height);spray.width=canvas.width;spray.height=canvas.height;rain.bounds(width/unit,height/unit);}
   function reset(){held=null;rain.reset();drops=rain.drops;}
   function point(e){return {x:(e.clientX-width/2)/unit,y:(height/2-e.clientY)/unit};}
-  canvas.addEventListener('pointerdown',e=>{if(pointerId!==null)return;pointerId=e.pointerId;canvas.setPointerCapture(e.pointerId);target=point(e);held=drops.reduce((best,d)=>Math.hypot(d.x-target.x,d.y-target.y)<d.r*.95&&(!best||Math.hypot(d.x-target.x,d.y-target.y)<Math.hypot(best.x-target.x,best.y-target.y))?d:best,null);if(!held&&drops.length<24){held=rain.add(target.x,target.y,rain.rainRadius);}});
+  canvas.addEventListener('pointerdown',e=>{if(pointerId!==null)return;pointerId=e.pointerId;canvas.setPointerCapture(e.pointerId);target=point(e);held=drops.reduce((best,d)=>Math.hypot(d.x-target.x,d.y-target.y)<d.r*.95&&(!best||Math.hypot(d.x-target.x,d.y-target.y)<Math.hypot(best.x-target.x,best.y-target.y))?d:best,null);if(!held&&drops.length<40){held=rain.add(target.x,target.y,rain.rainRadius);}});
   canvas.addEventListener('pointermove',e=>{if(e.pointerId===pointerId)target=point(e);});
   function release(e){if(e.pointerId===pointerId){held=null;pointerId=null;}}
   canvas.addEventListener('pointerup',release);canvas.addEventListener('pointercancel',release);canvas.addEventListener('lostpointercapture',release);
   document.querySelector('#reset').addEventListener('click',reset);
-  document.querySelector('#light').addEventListener('click',e=>{nightTarget=1-nightTarget;e.target.textContent=nightTarget?'昼へ':'夜へ';e.target.setAttribute('aria-pressed',String(!!nightTarget));document.body.classList.toggle('dark',!!nightTarget);});
+  document.querySelector('#light').addEventListener('click',e=>{nightTarget=1-nightTarget;e.target.textContent=nightTarget?'明るく':'暗く';e.target.setAttribute('aria-pressed',String(!!nightTarget));document.body.classList.add('dark');});
   canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();fail('描画が一時停止しました。ページを再読み込みしてください。');});
   function frame(ms){
     requestAnimationFrame(frame);if(document.hidden||gl.isContextLost()){last=ms;return;}
